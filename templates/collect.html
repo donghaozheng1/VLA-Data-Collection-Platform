@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+{% block page_title %}采集接入{% endblock %}
+{% block content %}
+<div class="flex mb-12">
+    <div><span class="text-muted">🛰 扫描磁盘上真实的 LeRobot 数据集（meta/info.json）并登记入库；原始数据只读，不会被修改</span></div>
+    <button class="btn btn-primary" onclick="doScan()">🔍 扫描磁盘</button>
+</div>
+
+<div class="card">
+    <h3>扫描根目录</h3>
+    <textarea id="roots" rows="3" style="width:100%;padding:8px 12px;border:1px solid #d9d9d9;border-radius:4px;font-family:Consolas,monospace;font-size:13px;">{% for r in roots %}{{ r }}
+{% endfor %}</textarea>
+    <div style="margin-top:10px;">
+        <div id="scanMsg" style="font-size:13px;color:#666;"></div>
+        <div id="scanBarWrap" style="display:none;background:#e9edf4;border-radius:6px;height:8px;margin-top:8px;">
+            <div id="scanBar" style="background:#2b7de9;height:8px;border-radius:6px;width:2%;"></div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3>发现的数据集</h3>
+    <table class="table">
+        <tr><th>名称</th><th>格式版本</th><th>fps</th><th>Episodes</th><th>Frames</th><th>语言指令</th><th>路径</th><th>操作</th></tr>
+        <tbody id="foundBody">
+            <tr><td colspan="8" style="text-align:center;color:#999;padding:20px;">点「扫描磁盘」开始</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="card">
+    <div style="font-size:15px;font-weight:700;color:#1a3c5e;margin-bottom:6px;">
+        🦾 把机器人自己采集的原始关节轨迹转成 VLA 数据集
+    </div>
+    <div class="text-muted" style="margin-bottom:12px;">
+        识别 <code style="background:#f5f5f5;padding:1px 6px;border-radius:3px;">timestamp + joint_1..joint_7</code>
+        结构的 parquet（RealMan 7 轴，约 10Hz），转成真实 LeRobot v2.1：
+        <code style="background:#f5f5f5;padding:1px 6px;border-radius:3px;">observation.state[7]</code> 与
+        <code style="background:#f5f5f5;padding:1px 6px;border-radius:3px;">action[7]</code>（取下一帧关节角）、
+        timestamp、next.done，然后自动接入平台
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">原始轨迹目录</label>
+            <input id="rawRoot" value="C:\Users\ll\Desktop\dhz\hkc" style="width:340px;padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;">
+        </div>
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">数据集名称</label>
+            <input id="rawName" value="hkc-joint-7dof" style="width:170px;padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;">
+        </div>
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">语言指令（VLA 的 L）</label>
+            <input id="rawTask" value="抓取放置任务（待标注）" style="width:230px;padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;">
+        </div>
+        <button class="btn btn-primary" onclick="doConvert()">转换并接入</button>
+    </div>
+    <div id="rawBarWrap" style="display:none;background:#e9edf4;border-radius:6px;height:8px;margin-top:12px;"><div id="rawBar" style="background:#2b7de9;height:8px;border-radius:6px;width:2%;"></div></div>
+    <div id="rawMsg" style="font-size:13px;color:#666;margin-top:8px;"></div>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">🎥 实时采集会话（真机 / 回放）</h3>
+        <button class="btn btn-sm" style="background:#f0f0f0;" onclick="loadSessions()">刷新</button>
+    </div>
+    <div class="text-muted" style="margin-bottom:10px;">
+        客户端把相机帧 + 关节角流式上报，提交时<b>直接落成一条真实 LeRobot episode</b>
+        （含 mp4 编码）并自动接入平台（版本 kind=collect）。<br>
+        真机：<code style="background:#f5f5f5;padding:1px 6px;border-radius:3px;">python tools/collect_client.py realtime --dataset ... --task "..."</code>
+        　无硬件验证链路：
+        <code style="background:#f5f5f5;padding:1px 6px;border-radius:3px;">replay --from &lt;数据集目录&gt; --episode 0</code>
+    </div>
+    <table class="table">
+        <tr><th>会话</th><th>数据集</th><th>来源</th><th>状态</th><th>帧数</th><th>episode</th><th>步长偏差</th><th>创建时间</th><th>操作</th></tr>
+        <tbody id="sessBody"><tr><td colspan="9" style="text-align:center;color:#999;padding:18px;">加载中…</td></tr></tbody>
+    </table>
+</div>
+
+<div class="card">
+    <h3>已接入的数据集</h3>
+    <table class="table">
+        <tr><th>ID</th><th>名称</th><th>版本</th><th>fps</th><th>Episodes</th><th>Frames</th><th>视频</th><th>大小</th><th>接入时间</th></tr>
+        {% for d in datasets %}
+        <tr>
+            <td>{{ d.id }}</td>
+            <td><strong>{{ d.name }}</strong></td>
+            <td><span class="tag">{{ d.codebase_version or '-' }}</span></td>
+            <td>{{ d.fps }}</td>
+            <td>{{ d.total_episodes }}</td>
+            <td>{{ d.total_frames }}</td>
+            <td style="font-size:12px;color:#666;">{% if d.codec %}{{ d.codec }} {{ d.image_shape or '' }}{% else %}<span class="text-muted">无（纯轨迹）</span>{% endif %}</td>
+            <td style="font-size:13px;">{{ '%.1f'|format((d.size_bytes or 0) / 1024 / 1024) }} MB</td>
+            <td style="font-size:12px;color:#999;">{{ d.refreshed_at }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" style="text-align:center;color:#999;padding:20px;">还没有接入任何数据集</td></tr>
+        {% endfor %}
+    </table>
+</div>
+
+<div class="card">
+    <h3>最近产物</h3>
+    <table class="table">
+        <tr><th>ID</th><th>类型</th><th>文件</th><th>大小</th><th>时间</th><th>操作</th></tr>
+        {% for a in recent_artifacts %}
+        <tr>
+            <td>{{ a.id }}</td>
+            <td><span class="tag">{{ a.kind }}</span></td>
+            <td style="font-size:13px;">{{ a.path.split('\\')[-1] }}</td>
+            <td style="font-size:13px;">{{ '%.1f'|format((a.bytes or 0) / 1024) }} KB</td>
+            <td style="font-size:12px;color:#999;">{{ a.created_at }}</td>
+            <td><a class="btn btn-primary btn-sm" href="/api/artifacts/{{ a.id }}/download">下载</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" style="text-align:center;color:#999;padding:20px;">还没有产物</td></tr>
+        {% endfor %}
+    </table>
+</div>
+
+<script>
+async function doScan() {
+    const roots = document.getElementById('roots').value
+        .split('\n').map((s) => s.trim()).filter(Boolean);
+    const tbody = document.getElementById('foundBody');
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999;padding:20px;">扫描中…</td></tr>';
+    setMsg('scanMsg', '扫描中，大目录需要几秒…');
+    try {
+        const data = await API.post('/api/collect/scan', { roots });
+        renderFound(data.datasets);
+        setMsg('scanMsg', `在 ${data.roots.length} 个根目录下发现 ${data.datasets.length} 个数据集`,
+               data.datasets.length ? 'ok' : 'error');
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" style="color:#ff4d4f;padding:20px;">扫描失败：${err.message}</td></tr>`;
+        setMsg('scanMsg', '扫描失败', 'error');
+    }
+}
+
+function renderFound(list) {
+    const tbody = document.getElementById('foundBody');
+    if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999;padding:20px;">没找到 LeRobot 数据集（需要包含 meta/info.json）</td></tr>';
+        return;
+    }
+    tbody.innerHTML = list.map((d, i) => {
+        const tasks = (d.tasks || []).join(' / ').slice(0, 40) || '-';
+        const action = d.registered_id
+            ? `<span class="status-badge status-done">已接入 #${d.registered_id}</span>
+               <button class="btn btn-sm" style="background:#f0f0f0;" onclick="doIngest(${i})">重新接入</button>`
+            : `<button class="btn btn-primary btn-sm" onclick="doIngest(${i})">接入</button>`;
+        return `<tr>
+            <td><strong>${d.name}</strong></td>
+            <td><span class="tag">${d.codebase_version || '-'}</span></td>
+            <td>${d.fps ?? '-'}</td>
+            <td>${d.total_episodes ?? '-'}</td>
+            <td>${d.total_frames ?? '-'}</td>
+            <td style="font-size:12px;color:#666;">${tasks}</td>
+            <td style="font-size:11px;color:#8896ab;word-break:break-all;">${d.path}</td>
+            <td style="white-space:nowrap;">${action}</td>
+        </tr>`;
+    }).join('');
+    window.__found = list;
+}
+
+async function doIngest(index) {
+    const d = window.__found[index];
+    const job = await runJob('ingest', { path: d.path, name: d.name }, { barId: 'scanBar', msgId: 'scanMsg' });
+    if (job.status === 'succeeded') {
+        setTimeout(() => window.location.reload(), 900);
+    }
+}
+
+async function doConvert() {
+    const payload = {
+        root: document.getElementById('rawRoot').value.trim(),
+        name: document.getElementById('rawName').value.trim(),
+        task_text: document.getElementById('rawTask').value.trim(),
+    };
+    const job = await runJob('convert', payload, { barId: 'rawBar', msgId: 'rawMsg' });
+    if (job.status === 'succeeded') {
+        const r = job.result || {};
+        setMsg('rawMsg', `完成：${r.episodes} 段 / ${r.frames} 帧 → 数据集 #${r.dataset_id}，`
+            + `来源 ${(r.sources || []).join(', ')}`, 'ok');
+        setTimeout(() => window.location.reload(), 1500);
+    }
+}
+const SESS_LABEL = { open: '采集进行中', committed: '已提交', aborted: '已中止' };
+const SESS_CLASS = { open: 'status-running', committed: 'status-done', aborted: 'status-offline' };
+
+async function loadSessions() {
+    const rows = await API.get('/api/collect/sessions?limit=10');
+    const body = document.getElementById('sessBody');
+    if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#999;padding:18px;">还没有采集会话</td></tr>';
+        return;
+    }
+    body.innerHTML = rows.map((s) => {
+        let res = null;
+        try { res = s.result_json ? JSON.parse(s.result_json) : null; } catch (e) { res = null; }
+        const actions = s.status === 'open'
+            ? `<button class="btn btn-primary btn-sm" onclick="commitSession(${s.id})">提交为 episode</button>
+               <button class="btn btn-sm" style="background:#f0f0f0;" onclick="abortSession(${s.id})">中止</button>`
+            : '-';
+        return `<tr>
+            <td>#${s.id}</td>
+            <td><strong>${s.dataset_name}</strong></td>
+            <td><span class="tag">${s.source || '-'}</span></td>
+            <td><span class="status-badge ${SESS_CLASS[s.status] || 'status-offline'}">${SESS_LABEL[s.status] || s.status}</span></td>
+            <td>${s.frames}</td>
+            <td>${s.episode_index === null || s.episode_index === undefined ? '-' : s.episode_index}</td>
+            <td>${res && res.step_dev_max !== undefined ? res.step_dev_max : '-'}</td>
+            <td style="font-size:12px;color:#999;">${s.created_at}</td>
+            <td style="white-space:nowrap;">${actions}</td>
+        </tr>`;
+    }).join('');
+}
+
+async function commitSession(id) {
+    const ok = confirm('这条 episode 判定为成功吗？\n确定 = 成功，取消 = 失败');
+    try {
+        const r = await API.post(`/api/collect/session/${id}/commit`, { success: ok });
+        alert(`已提交：episode ${r.episode_index}，${r.rows} 行，视频 ${r.video_frames} 帧\n`
+            + `步长偏差 ${r.step_dev_max}，已接入数据集 #${r.platform_dataset_id} v${r.platform_version}`);
+        await loadSessions();
+    } catch (err) {
+        alert('提交失败：' + err.message);
+    }
+}
+
+async function abortSession(id) {
+    if (!confirm('确认中止该会话？已上报的帧会被删除。')) return;
+    await API.post(`/api/collect/session/${id}/abort`, {});
+    await loadSessions();
+}
+
+loadSessions();
+
+</script>
+{% endblock %}

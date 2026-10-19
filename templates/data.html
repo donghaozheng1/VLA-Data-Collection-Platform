@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% block page_title %}数据管理<div class="card" id="dedupCard">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">🔁 跨数据集重复检测</h3>
+        <div>
+            <button class="btn btn-sm" style="background:#f0f0f0;" onclick="loadDedup()">看报告</button>
+            <button class="btn btn-sm btn-primary" onclick="runDedup()">重新扫描指纹</button>
+        </div>
+    </div>
+    <div class="text-muted" style="margin-bottom:10px;">
+        按 <b>内容</b>（state/action/timestamp 取值）而非文件名找重复：精确重复与近似重复分开报。
+        派生重复（血缘里能解释，如 preprocess / repair / export 的产物）是预期的；
+        <b>无血缘重复</b>才需要人工判断保留哪份。平台只报告，不自动删数据。
+    </div>
+    <div id="ddMsg" style="font-size:13px;color:#666;margin-bottom:8px;"></div>
+    <div id="ddSummary" style="font-size:13px;color:#5a6b85;margin-bottom:10px;"></div>
+    <table class="table">
+        <tr><th>类型</th><th>判定</th><th>数据集数</th><th>条数</th><th>长度</th><th>成员（数据集 / episode）</th></tr>
+        <tbody id="ddBody"><tr><td colspan="6" style="text-align:center;color:#999;padding:18px;">点「看报告」</td></tr></tbody>
+    </table>
+</div>
+
+{% endblock %}
+{% block content %}
+<div class="flex mb-12">
+    <div><span class="text-muted">📁 数据集 / episode 的真实明细：行数、视频帧数、时长、成功位、质检问题</span></div>
+    <div>
+        <select id="dsSel" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;min-width:200px;"></select>
+        <button class="btn btn-primary" onclick="loadEpisodes()">加载 episode</button>
+    </div>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;" id="epTitle">Episodes</h3>
+        <div class="text-muted">
+            <label style="font-size:13px;"><input type="checkbox" id="onlyBad" onchange="loadEpisodes()"> 只看有问题的</label>
+            <span id="epCount" style="margin-left:12px;"></span>
+        </div>
+    </div>
+    <table class="table">
+        <tr><th>Episode</th><th>行数</th><th>视频帧数</th><th>时长</th><th>成功位</th><th>动作</th><th>问题</th><th>语言指令</th><th>操作</th></tr>
+        <tbody id="epBody"><tr><td colspan="9" style="text-align:center;color:#999;padding:20px;">选一个数据集后点「加载 episode」</td></tr></tbody>
+    </table>
+</div>
+
+<div class="card" id="videoCard" style="display:none;">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;" id="videoTitle">视频预览</h3>
+        <button class="btn btn-sm" style="background:#f0f0f0;" onclick="document.getElementById('videoCard').style.display='none'">关闭</button>
+    </div>
+    <video id="vid" controls style="width:360px;border-radius:6px;border:1px solid #e9edf4;background:#000;"></video>
+    <div class="text-muted" style="margin-top:8px;">原始视频只读，直接流式读取自数据集目录（不复制）</div>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">🧬 版本与血缘</h3>
+        <button class="btn btn-primary btn-sm" onclick="loadVersions()">查看当前数据集的版本</button>
+    </div>
+    <div id="lineageBox" style="font-size:13px;color:#5a6b85;margin-bottom:12px;"></div>
+    <table class="table">
+        <tr><th>版本</th><th>类型</th><th>内容哈希</th><th>Episodes</th><th>Frames</th><th>父版本</th><th>时间</th><th>产物</th></tr>
+        <tbody id="verBody"><tr><td colspan="8" style="text-align:center;color:#999;padding:18px;">选中数据集后点右上角按钮</td></tr></tbody>
+    </table>
+    <div id="derivedBox" style="margin-top:12px;font-size:13px;color:#5a6b85;"></div>
+</div>
+
+<script>
+let DATASETS = [];
+
+async function loadDatasets() {
+    DATASETS = await API.get('/api/datasets');
+    const sel = document.getElementById('dsSel');
+    sel.innerHTML = DATASETS.map((d) =>
+        `<option value="${d.id}">${d.name}（${d.total_episodes} 条 / ${d.fps}fps）</option>`).join('');
+    if (DATASETS.length) loadEpisodes();
+}
+
+async function loadEpisodes() {
+    const sel = document.getElementById('dsSel');
+    if (!sel.value) return;
+    const ds = DATASETS.find((d) => String(d.id) === sel.value);
+    const onlyBad = document.getElementById('onlyBad').checked;
+    const body = document.getElementById('epBody');
+    body.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#999;padding:20px;">加载中…</td></tr>';
+    const data = await API.get(`/api/datasets/${sel.value}/episodes?only_bad=${onlyBad}`);
+    document.getElementById('epTitle').textContent = `${ds.name} · Episodes`;
+    document.getElementById('epCount').textContent = `显示 ${data.episodes.length} / 共 ${data.total} 条`;
+    if (!data.episodes.length) {
+        body.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#999;padding:20px;">没有符合条件的 episode</td></tr>';
+        return;
+    }
+    body.innerHTML = data.episodes.map((e) => {
+        const mismatch = e.video_frames !== null && e.data_rows !== null && e.video_frames !== e.data_rows;
+        const frames = e.video_frames === null ? '<span style="color:#999;">未知</span>'
+            : `<span style="color:${mismatch ? '#ff4d4f' : '#333'};">${e.video_frames}</span>`;
+        const bad = e.error_count
+            ? `<span class="status-badge status-error">${e.error_count}</span>`
+            : '<span class="status-badge status-done">0</span>';
+        const action = e.action_constant === true
+            ? '<span class="status-badge status-paused">全程不变</span>'
+            : '<span class="status-badge status-done">有效</span>';
+        return `<tr>
+            <td><strong>${e.episode_index}</strong></td>
+            <td>${e.data_rows}</td>
+            <td>${frames}</td>
+            <td>${e.duration_s !== null ? e.duration_s + 's' : '-'}</td>
+            <td>${e.success_count || 0} / ${e.length || '-'}</td>
+            <td>${action}</td>
+            <td>${bad}</td>
+            <td style="font-size:12px;color:#5a6b85;max-width:260px;">${e.annotated_task || e.task_text || '-'}</td>
+            <td><button class="btn btn-primary btn-sm" onclick="playVideo(${e.dataset_id}, ${e.episode_index})">预览视频</button></td>
+        </tr>`;
+    }).join('');
+}
+
+function playVideo(datasetId, episodeIndex) {
+    const card = document.getElementById('videoCard');
+    card.style.display = 'block';
+    document.getElementById('videoTitle').textContent = `视频预览 · episode ${episodeIndex}`;
+    const vid = document.getElementById('vid');
+    vid.src = `/api/episodes/${datasetId}/${episodeIndex}/video`;
+    vid.load();
+}
+
+async function loadVersions() {
+    const sel = document.getElementById('dsSel');
+    if (!sel.value) return alert('请先选择一个数据集');
+    const data = await API.get(`/api/datasets/${sel.value}/versions`);
+    const lin = await API.get(`/api/datasets/${sel.value}/lineage`);
+    const der = await API.get(`/api/datasets/${sel.value}/derived`);
+
+    document.getElementById('lineageBox').innerHTML = '血缘：' + (lin.chain.length
+        ? lin.chain.map((n, i) => `${i ? ' ← ' : ''}#${n.id} ${n.name} <span class="tag">v${n.version}</span>`).join('')
+        : '（无）');
+
+    const body = document.getElementById('verBody');
+    body.innerHTML = data.versions.length ? data.versions.map((v) => `<tr>
+        <td><strong>v${v.version}</strong></td>
+        <td><span class="tag">${v.kind}</span></td>
+        <td style="font-size:11px;font-family:Consolas,monospace;">${(v.content_hash || '').slice(0, 16)}…</td>
+        <td>${v.episodes ?? '-'}</td>
+        <td>${v.frames ?? '-'}</td>
+        <td>${v.parent_version ?? '-'}</td>
+        <td style="font-size:12px;color:#999;">${v.created_at}</td>
+        <td><a class="btn btn-primary btn-sm" href="/api/versions/${v.id}/download">下载</a></td>
+      </tr>`).join('')
+      : '<tr><td colspan="8" style="text-align:center;color:#999;padding:18px;">还没有版本记录</td></tr>';
+
+    document.getElementById('derivedBox').innerHTML = der.length
+        ? '派生数据集：' + der.map((d) => `#${d.id} ${d.name}（${d.derived_by}，v${d.version}，${d.total_episodes} 条）`).join(' ｜ ')
+        : '没有由它派生的数据集';
+}
+
+loadDatasets();
+async function loadDedup() {
+    const r = await API.get('/api/dedup/report');
+    document.getElementById('ddSummary').textContent =
+        `已指纹化 ${r.hashed_episodes} 条 episode（${r.datasets_scanned} 个数据集）：`
+        + `精确重复 ${r.exact_groups} 组 / 近似重复 ${r.near_groups} 组`;
+    const cls = (c) => c.startsWith('无血缘') ? 'status-error'
+        : (c.startsWith('派生') ? 'status-done' : 'status-paused');
+    const body = document.getElementById('ddBody');
+    body.innerHTML = r.groups.length ? r.groups.map((g) => `<tr>
+        <td><span class="tag">${g.kind}</span>
+            <div class="text-muted" style="font-size:11px;">${g.sameness}</div></td>
+        <td><span class="status-badge ${cls(g.classification)}">${g.classification}</span>
+            ${(g.families || []).length > 1 ? `<div class="text-muted" style="font-size:11px;">血缘族：`
+                + g.families.map((f) => '[' + f.map((d) => '#' + d).join(',') + ']').join(' vs ')
+                + `</div>` : ''}</td>
+        <td>${g.dataset_count}</td>
+        <td>${g.count}</td>
+        <td style="font-size:12px;">${g.lengths.join(' / ')}</td>
+        <td style="font-size:12px;">${g.members.map((m) =>
+            `#${m.dataset_id} ${m.dataset} ep${m.episode_index}`).join('<br>')}</td>
+      </tr>`).join('')
+      : '<tr><td colspan="6" style="text-align:center;color:#52c41a;padding:18px;">没有发现重复</td></tr>';
+    document.getElementById('ddSummary').textContent +=
+        `　｜　无血缘重复组 ${r.unexplained_groups} 组`;
+    setMsg('ddMsg', (r.warnings && r.warnings.length)
+        ? '⚠️ ' + r.warnings.join('；') : r.note, r.warnings && r.warnings.length ? 'error' : 'ok');
+}
+
+async function runDedup() {
+    setMsg('ddMsg', '扫描中（算每条 episode 的指纹）…');
+    const job = await runJob('dedup', { force: false }, { barId: 'ddBar', msgId: 'ddMsg' });
+    if (job.status === 'succeeded') {
+        const r = job.result || {};
+        setMsg('ddMsg', `算了 ${r.computed} 条指纹（跳过 ${r.skipped_datasets} 个已算过的数据集）`, 'ok');
+        await loadDedup();
+    }
+}
+
+loadDedup();
+
+</script>
+{% endblock %}

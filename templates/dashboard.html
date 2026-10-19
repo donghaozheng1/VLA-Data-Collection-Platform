@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block page_title %}工作台{% endblock %}
+{% block content %}
+<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:16px;margin-bottom:24px;">
+    <div class="card" style="text-align:center;padding:20px;margin-bottom:0;"><div id="mDatasets" style="font-size:26px;font-weight:700;color:#2b7de9;">-</div><div class="text-muted">数据集</div></div>
+    <div class="card" style="text-align:center;padding:20px;margin-bottom:0;"><div id="mEpisodes" style="font-size:26px;font-weight:700;color:#1890ff;">-</div><div class="text-muted">Episodes</div></div>
+    <div class="card" style="text-align:center;padding:20px;margin-bottom:0;"><div id="mFrames" style="font-size:26px;font-weight:700;color:#722ed1;">-</div><div class="text-muted">总帧数</div></div>
+    <div class="card" style="text-align:center;padding:20px;margin-bottom:0;"><div id="mBad" style="font-size:26px;font-weight:700;color:#ff4d4f;">-</div><div class="text-muted">质检问题条</div></div>
+    <div class="card" style="text-align:center;padding:20px;margin-bottom:0;"><div id="mAnnotated" style="font-size:26px;font-weight:700;color:#52c41a;">-</div><div class="text-muted">已标注</div></div>
+    <div class="card" style="text-align:center;padding:20px;margin-bottom:0;"><div id="mBytes" style="font-size:26px;font-weight:700;color:#faad14;">-</div><div class="text-muted">数据体积</div></div>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">📦 已接入数据集</h3>
+        <span class="text-muted">真实读取自磁盘上的 LeRobot 数据集</span>
+    </div>
+    <table class="table">
+        <tr><th>ID</th><th>名称</th><th>版本</th><th>fps</th><th>Episodes</th><th>Frames</th><th>时长</th><th>问题条</th><th>已标注</th><th>大小</th></tr>
+        <tbody id="dsBody"><tr><td colspan="10" style="text-align:center;color:#999;padding:20px;">加载中…</td></tr></tbody>
+    </table>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">⚙️ 最近任务</h3>
+        <button class="btn btn-sm" style="background:#f0f0f0;" onclick="refresh()">刷新</button>
+    </div>
+    <table class="table">
+        <tr><th>ID</th><th>类型</th><th>状态</th><th>进度</th><th>消息</th><th>创建时间</th><th>操作</th></tr>
+        <tbody id="jobBody"></tbody>
+    </table>
+</div>
+
+<script>
+async function loadOverview() {
+    const o = await API.get('/api/overview');
+    document.getElementById('mDatasets').textContent = o.datasets;
+    document.getElementById('mEpisodes').textContent = o.episodes;
+    document.getElementById('mFrames').textContent = o.frames.toLocaleString();
+    document.getElementById('mBad').textContent = o.qc_bad_episodes;
+    document.getElementById('mAnnotated').textContent = o.annotated;
+    document.getElementById('mBytes').textContent = fmtBytes(o.bytes);
+}
+
+async function loadDatasets() {
+    const rows = await API.get('/api/datasets');
+    const tbody = document.getElementById('dsBody');
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#999;padding:20px;">还没有数据集，去「采集接入」扫描磁盘</td></tr>';
+        return;
+    }
+    tbody.innerHTML = rows.map((d) => {
+        const dur = d.fps ? fmtDuration(d.total_frames / d.fps) : '-';
+        const bad = d.bad_episodes
+            ? `<span class="status-badge status-error">${d.bad_episodes}</span>`
+            : '<span class="status-badge status-done">0</span>';
+        return `<tr>
+            <td>${d.id}</td>
+            <td><strong>${d.name}</strong></td>
+            <td><span class="tag">${d.codebase_version || '-'}</span></td>
+            <td>${d.fps ?? '-'}</td>
+            <td>${d.total_episodes ?? '-'}</td>
+            <td>${(d.total_frames || 0).toLocaleString()}</td>
+            <td>${dur}</td>
+            <td>${bad}</td>
+            <td>${d.annotated || 0}</td>
+            <td>${fmtBytes(d.size_bytes)}</td>
+        </tr>`;
+    }).join('');
+}
+
+async function refresh() {
+    await Promise.all([loadOverview(), loadDatasets(), renderJobs('jobBody', 10)]);
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+{% endblock %}

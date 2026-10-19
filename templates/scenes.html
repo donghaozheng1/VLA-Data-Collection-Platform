@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block page_title %}场景管理{% endblock %}
+{% block content %}
+<div class="flex mb-12">
+    <div><span class="text-muted">🗺️ 按<b>任务</b>聚合的真实覆盖度：数据集、episode、帧、标注进度、质检打回、bad case。多种写法靠「任务归一」显式映射，平台不静默合并</span></div>
+    <button class="btn btn-primary" onclick="location.reload()">刷新</button>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-bottom:16px;">
+    <div class="card" style="text-align:center;padding:18px;margin-bottom:0;"><div style="font-size:24px;font-weight:700;color:#2b7de9;">{{ overview.totals.tasks }}</div><div class="text-muted">任务数（归一后）</div></div>
+    <div class="card" style="text-align:center;padding:18px;margin-bottom:0;"><div style="font-size:24px;font-weight:700;color:#722ed1;">{{ overview.totals.raw_variants }}</div><div class="text-muted">原始写法数</div></div>
+    <div class="card" style="text-align:center;padding:18px;margin-bottom:0;"><div style="font-size:24px;font-weight:700;color:#1890ff;">{{ overview.totals.episodes }}</div><div class="text-muted">episode 总数</div></div>
+    <div class="card" style="text-align:center;padding:18px;margin-bottom:0;"><div style="font-size:24px;font-weight:700;color:#52c41a;">{{ overview.totals.frames }}</div><div class="text-muted">总帧数</div></div>
+    <div class="card" style="text-align:center;padding:18px;margin-bottom:0;"><div style="font-size:24px;font-weight:700;color:#faad14;">{{ overview.totals.annotated }}</div><div class="text-muted">已标注 episode</div></div>
+</div>
+
+{% if overview.suggestions %}
+<div class="card" style="border-left:4px solid #faad14;">
+    <h3>⚠️ 疑似同一任务（写法高度相似，尚未归一）</h3>
+    <div class="text-muted" style="margin-bottom:10px;">
+        平台只做近文本匹配（同语言、去掉标点与结尾序号后相同）。跨语言（英文元数据 vs 中文标注）需要你自己判断。
+    </div>
+    {% for s in overview.suggestions %}
+    <div style="background:#fffbe6;border-radius:6px;padding:10px 12px;margin-bottom:8px;" id="sug{{ loop.index }}">
+        {% for task in s.tasks %}
+        <label style="margin-right:16px;font-size:13px;">
+            <input type="radio" name="sug{{ loop.index }}" value="{{ task }}" {% if loop.first %}checked{% endif %}>
+            {{ task }}
+        </label>
+        {% endfor %}
+        <button class="btn btn-sm btn-primary" onclick="mergeGroup('sug{{ loop.index }}')">合并为一个任务</button>
+        <span class="text-muted" style="font-size:12px;">（选中的作为任务名，其余登记为别名）</span>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if overview.aliases %}
+<div class="card">
+    <h3>已登记的任务别名</h3>
+    <table class="table">
+        <tr><th>写法</th><th>归到</th><th>操作</th></tr>
+        {% for alias, canonical in overview.aliases.items() %}
+        <tr>
+            <td style="font-size:13px;">{{ alias }}</td>
+            <td style="font-size:13px;"><strong>{{ canonical }}</strong></td>
+            <td><button class="btn btn-sm" style="background:#f0f0f0;" onclick="removeAlias('{{ alias }}')">取消归一</button></td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endif %}
+
+<div class="card">
+    <h3>任务覆盖度</h3>
+    <table class="table">
+        <tr>
+            <th>任务</th><th>写法</th><th>数据集</th><th>episodes</th><th>帧数</th><th>时长(s)</th>
+            <th>数据成功位</th><th>已标注</th><th>成功/失败标注</th><th>质检打回</th><th>bad case</th><th>操作</th>
+        </tr>
+        {% for t in overview.tasks %}
+        <tr>
+            <td style="max-width:260px;"><strong style="font-size:13px;">{{ t.task }}</strong>
+                <div class="text-muted" style="font-size:11px;">{{ t.dataset_names|join('、') }}</div></td>
+            <td>{% if t.variant_count > 1 %}<span class="tag" style="background:#fff1f0;color:#cf1322;">{{ t.variant_count }}</span>{% else %}1{% endif %}</td>
+            <td>{{ t.dataset_count }}</td>
+            <td>{{ t.episodes }}</td>
+            <td>{{ t.frames }}</td>
+            <td>{{ t.duration_s }}</td>
+            <td>{{ t.success_by_data }}</td>
+            <td>{{ t.annotated }} <span class="text-muted">({{ (t.coverage * 100)|round(1) }}%)</span></td>
+            <td><span style="color:#52c41a;">{{ t.annotated_success }}</span> / <span style="color:#ff4d4f;">{{ t.annotated_fail }}</span></td>
+            <td>{% if t.qc_cases %}<span style="color:#ff4d4f;">{{ t.qc_cases }}</span>{% else %}0{% endif %}</td>
+            <td>{% if t.open_cases %}<span style="color:#faad14;">{{ t.open_cases }}</span>/{{ t.bad_cases }}{% else %}{{ t.bad_cases }}{% endif %}</td>
+            <td><button class="btn btn-sm" style="background:#f0f0f0;" onclick="toggleVariants('v{{ loop.index }}')">看写法</button></td>
+        </tr>
+        <tr id="v{{ loop.index }}" style="display:none;background:#fafbfd;">
+            <td colspan="12">
+                <table class="table" style="margin:0;">
+                    <tr><th>原始写法</th><th>episodes</th><th>帧数</th><th>数据集</th><th>操作</th></tr>
+                    {% for v in t.variants %}
+                    <tr>
+                        <td style="font-size:12px;">{{ v.task }}{% if v.is_canonical %} <span class="tag">任务名</span>{% endif %}</td>
+                        <td>{{ v.episodes }}</td>
+                        <td>{{ v.frames }}</td>
+                        <td style="font-size:11px;color:#8896ab;">{{ v.dataset_names|join('、') }}</td>
+                        <td>{% if not v.is_canonical %}
+                            <button class="btn btn-sm" style="background:#f0f0f0;"
+                                    onclick="aliasTo('{{ v.task }}', '{{ t.task }}')">归到本任务</button>
+                        {% else %}-{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </table>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+    <div class="text-muted" style="margin-top:10px;">
+        「数据成功位」= 数据集里 `next.success` 末帧为真的 episode 数（来自数据本身）；
+        「已标注」= 人工标注过的 episode 数。两者口径不同，都列出来是因为它们各自有含义。
+    </div>
+</div>
+
+<script>
+function toggleVariants(id) {
+    const row = document.getElementById(id);
+    row.style.display = row.style.display === 'none' ? '' : 'none';
+}
+
+async function mergeGroup(groupId) {
+    const radios = document.getElementsByName(groupId);
+    let canonical = null;
+    const tasks = [];
+    for (const r of radios) {
+        tasks.push(r.value);
+        if (r.checked) canonical = r.value;
+    }
+    if (!canonical) return alert('请先选一个作为任务名');
+    try {
+        const res = await API.post('/api/scenes/merge', { tasks, canonical });
+        alert(`已归一：${res.aliased.join('、')} -> ${canonical}`);
+        location.reload();
+    } catch (err) { alert('归一失败：' + err.message); }
+}
+
+async function aliasTo(alias, canonical) {
+    try {
+        await API.post('/api/scenes/alias', { alias, canonical });
+        location.reload();
+    } catch (err) { alert('登记失败：' + err.message); }
+}
+
+async function removeAlias(alias) {
+    if (!confirm('取消该写法到任务的映射？')) return;
+    await API.delete('/api/scenes/alias?alias=' + encodeURIComponent(alias));
+    location.reload();
+}
+</script>
+{% endblock %}

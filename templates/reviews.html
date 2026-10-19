@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+{% block page_title %}标注抽检{% endblock %}
+{% block content %}
+<div class="flex mb-12">
+    <div><span class="text-muted">🔍 交叉校验与标注质量：可复现抽检 → 盲标复核 → 一致率 / Cohen's Kappa → 争议裁决（裁决结果写回主标注）</span></div>
+</div>
+
+<div class="card">
+    <h3>① 生成抽检批次</h3>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">数据集（只列出有标注的）</label>
+            <select id="dsSel" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;min-width:240px;">
+                {% for d in datasets %}
+                <option value="{{ d.id }}" data-annotated="{{ d.annotated }}">{{ d.name }}（已标注 {{ d.annotated }}）</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">抽检条数</label>
+            <input id="countInput" type="number" min="1" value="5" style="width:90px;padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;">
+        </div>
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">轮次标识 salt（换一批就改它）</label>
+            <input id="saltInput" value="round-1" style="width:130px;padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;">
+        </div>
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">复核员</label>
+            <input id="reviewerInput" value="annotator_B" style="width:130px;padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;">
+        </div>
+        <button class="btn btn-primary" onclick="doSample()">生成抽检批次</button>
+    </div>
+    <div id="sampleMsg" style="font-size:13px;color:#666;margin-top:10px;"></div>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">② 盲标复核（不显示主标结果）</h3>
+        <div class="text-muted">
+            <label style="font-size:13px;"><input type="checkbox" id="onlyPending" onchange="loadQueue()"> 只看未复核</label>
+            <button class="btn btn-sm" style="background:#f0f0f0;margin-left:8px;" onclick="loadQueue()">刷新</button>
+        </div>
+    </div>
+    <table class="table">
+        <tr><th>Episode</th><th>原始指令</th><th>数据</th><th>复核指令</th><th>成功</th><th>备注</th><th>状态</th><th>操作</th><th>视频</th></tr>
+        <tbody id="queueBody"><tr><td colspan="9" style="text-align:center;color:#999;padding:18px;">先选数据集并点「刷新」</td></tr></tbody>
+    </table>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">③ 一致性指标</h3>
+        <button class="btn btn-sm" style="background:#f0f0f0;" onclick="loadAgreement()">刷新指标</button>
+    </div>
+    <div id="metricBox" style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:14px;"></div>
+    <div id="tableBox" style="font-size:13px;color:#5a6b85;margin-bottom:14px;"></div>
+    <h3>争议队列（裁决结果会写回主标注）</h3>
+    <table class="table">
+        <tr><th>Episode</th><th>主标成功</th><th>复核成功</th><th>主标指令</th><th>复核指令</th><th>分歧</th><th>状态</th><th>裁决</th></tr>
+        <tbody id="disputeBody"><tr><td colspan="8" style="text-align:center;color:#999;padding:18px;">暂无争议</td></tr></tbody>
+    </table>
+</div>
+
+<div class="card">
+    <h3>④ 抽检批次历史</h3>
+    <table class="table">
+        <tr><th>批次</th><th>salt</th><th>抽检条数</th><th>episodes</th><th>复核总数</th><th>时间</th><th>备注</th></tr>
+        <tbody id="batchBody"><tr><td colspan="7" style="text-align:center;color:#999;padding:18px;">还没有批次</td></tr></tbody>
+    </table>
+</div>
+
+<div class="card" id="videoCard" style="display:none;">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;" id="videoTitle">视频预览</h3>
+        <button class="btn btn-sm" style="background:#f0f0f0;" onclick="document.getElementById('videoCard').style.display='none'">关闭</button>
+    </div>
+    <video id="vid" controls style="width:320px;border-radius:6px;background:#000;"></video>
+</div>
+
+<script>
+let CURRENT_BATCH = null;
+
+function currentDataset() {
+    const sel = document.getElementById('dsSel');
+    return sel && sel.value ? parseInt(sel.value, 10) : null;
+}
+
+async function doSample() {
+    const dataset_id = currentDataset();
+    if (!dataset_id) return alert('请先选择一个数据集');
+    const payload = {
+        dataset_id,
+        count: parseInt(document.getElementById('countInput').value, 10) || 5,
+        salt: document.getElementById('saltInput').value.trim(),
+        note: '界面抽检',
+    };
+    try {
+        const r = await API.post('/api/reviews/sample', payload);
+        CURRENT_BATCH = r.batch_id;
+        setMsg('sampleMsg', `批次 #${r.batch_id}：从 ${r.pool} 条已标注里抽出 ${r.sampled} 条 ` +
+            `[${r.episodes.join(', ')}]（salt=${r.salt}，同 salt 可复现）`, 'ok');
+        await Promise.all([loadQueue(), loadBatches(), loadAgreement()]);
+    } catch (err) {
+        setMsg('sampleMsg', '抽检失败：' + err.message, 'error');
+    }
+}
+
+async function loadQueue() {
+    const dataset_id = currentDataset();
+    if (!dataset_id) return;
+    const reviewer = document.getElementById('reviewerInput').value.trim() || 'annotator_B';
+    const onlyPending = document.getElementById('onlyPending').checked;
+    const url = `/api/reviews/queue?dataset_id=${dataset_id}&reviewer=${encodeURIComponent(reviewer)}`
+        + (CURRENT_BATCH ? `&batch_id=${CURRENT_BATCH}` : '') + `&only_pending=${onlyPending}`;
+    const data = await API.get(url);
+    const body = document.getElementById('queueBody');
+    if (!data.items.length) {
+        body.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#999;padding:18px;">没有待复核的 episode</td></tr>';
+        return;
+    }
+    body.innerHTML = data.items.map((it) => {
+        const done = it.reviewer_count > 0;
+        const status = done
+            ? '<span class="status-badge status-done">已复核</span>'
+            : '<span class="status-badge status-paused">待复核</span>';
+        const reviewOk = it.review_success === 1;
+        return `<tr>
+            <td><strong>${it.episode_index}</strong></td>
+            <td style="font-size:12px;color:#8896ab;max-width:220px;">${it.source_task || '-'}</td>
+            <td style="font-size:12px;color:#666;">${it.data_rows ?? '-'} 帧 / ${it.duration_s ?? '-'}s</td>
+            <td><input id="rt_${it.episode_index}" value="${(it.review_task || '').replace(/"/g, '&quot;')}"
+                       style="width:260px;padding:6px 8px;border:1px solid #d9d9d9;border-radius:4px;font-size:13px;"></td>
+            <td><input type="checkbox" id="rs_${it.episode_index}" ${reviewOk ? 'checked' : ''}></td>
+            <td><input id="rn_${it.episode_index}" value="${(it.review_note || '').replace(/"/g, '&quot;')}"
+                       style="width:110px;padding:6px 8px;border:1px solid #d9d9d9;border-radius:4px;font-size:13px;"></td>
+            <td>${status}</td>
+            <td><button class="btn btn-primary btn-sm" onclick="saveReview(${it.episode_index})">保存复核</button></td>
+            <td><button class="btn btn-sm" style="background:#f0f0f0;" onclick="playVideo(${dataset_id}, ${it.episode_index})">预览</button></td>
+        </tr>`;
+    }).join('');
+}
+
+async function saveReview(episodeIndex) {
+    const dataset_id = currentDataset();
+    const reviewer = document.getElementById('reviewerInput').value.trim() || 'annotator_B';
+    const payload = {
+        reviewer,
+        task_text: document.getElementById(`rt_${episodeIndex}`).value,
+        success: document.getElementById(`rs_${episodeIndex}`).checked,
+        note: document.getElementById(`rn_${episodeIndex}`).value,
+    };
+    try {
+        await API.put(`/api/reviews/${dataset_id}/${episodeIndex}`, payload);
+        await Promise.all([loadQueue(), loadAgreement()]);
+    } catch (err) {
+        alert('保存失败：' + err.message);
+    }
+}
+
+async function loadAgreement() {
+    const dataset_id = currentDataset();
+    if (!dataset_id) return;
+    const reviewer = document.getElementById('reviewerInput').value.trim() || 'annotator_B';
+    const ag = await API.get(`/api/reviews/agreement?dataset_id=${dataset_id}&reviewer=${encodeURIComponent(reviewer)}`);
+    const kappaText = ag.kappa === null ? '样本不足'
+        : (ag.kappa_ci ? ag.kappa + '（95% CI ' + ag.kappa_ci[0] + ' ~ ' + ag.kappa_ci[1] + '）' : ag.kappa);
+    const cards = [
+        ['已复核', ag.reviewed, '#2b7de9'],
+        ['一致率', ag.agreement === null ? '-' : (ag.agreement * 100).toFixed(1) + '%', '#52c41a'],
+        ['Cohen Kappa', kappaText, ag.kappa !== null && ag.kappa < 0.4 ? '#ff4d4f' : '#722ed1'],
+        ['文本一致率', ag.text_agreement === null ? '-' : (ag.text_agreement * 100).toFixed(1) + '%', '#1890ff'],
+        ['争议 / 未解决', `${ag.dispute_count} / ${ag.unresolved}`, ag.unresolved ? '#faad14' : '#52c41a'],
+    ];
+    document.getElementById('metricBox').innerHTML = cards.map(([k, v, color]) => `
+        <div class="card" style="text-align:center;padding:16px;margin-bottom:0;">
+            <div style="font-size:22px;font-weight:700;color:${color};">${v}</div>
+            <div class="text-muted" style="font-size:12px;">${k}</div>
+        </div>`).join('');
+    const t = ag.table;
+    document.getElementById('tableBox').innerHTML =
+        `2×2：双方成功 <b>${t.both_ok}</b> ｜ 仅主标成功 <b>${t.primary_ok_only}</b> ｜ `
+        + `仅复核成功 <b>${t.review_ok_only}</b> ｜ 双方失败 <b>${t.both_bad}</b>`
+        + `　　判定：<b>${ag.kappa_level}</b>`
+        + (ag.reliable === false ? '　<span style="color:#faad14;">（样本量 < 30，仅作参考）</span>' : '');
+
+    const body = document.getElementById('disputeBody');
+    if (!ag.disputes.length) {
+        body.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#52c41a;padding:18px;">没有争议 🎉</td></tr>';
+        return;
+    }
+    body.innerHTML = ag.disputes.map((x) => {
+        const kind = [x.success_diff ? '成功位' : '', x.text_diff ? '指令文本' : ''].filter(Boolean).join('+');
+        const state = x.resolved
+            ? '<span class="status-badge status-done">已裁决</span>'
+            : '<span class="status-badge status-error">待裁决</span>';
+        const actions = x.resolved ? '-' : `
+            <button class="btn btn-sm" style="background:#f0f0f0;" onclick="doResolve(${x.episode_index}, 'primary')">采纳主标</button>
+            <button class="btn btn-primary btn-sm" onclick="doResolve(${x.episode_index}, 'review')">采纳复核</button>`;
+        return `<tr>
+            <td><strong>${x.episode_index}</strong></td>
+            <td>${x.primary_success === null ? '-' : (x.primary_success ? '成功' : '失败')}</td>
+            <td>${x.review_success === null ? '-' : (x.review_success ? '成功' : '失败')}</td>
+            <td style="font-size:12px;max-width:220px;">${x.primary_task || '-'}</td>
+            <td style="font-size:12px;max-width:220px;">${x.review_task || '-'}</td>
+            <td><span class="tag">${kind}</span></td>
+            <td>${state}</td>
+            <td style="white-space:nowrap;">${actions}</td>
+        </tr>`;
+    }).join('');
+}
+
+async function doResolve(episodeIndex, decision) {
+    const dataset_id = currentDataset();
+    const reviewer = document.getElementById('reviewerInput').value.trim() || 'annotator_B';
+    try {
+        await API.post(`/api/reviews/${dataset_id}/${episodeIndex}/resolve`,
+            { reviewer, decision, note: `界面裁决：${decision}` });
+        await Promise.all([loadAgreement(), loadQueue()]);
+    } catch (err) {
+        alert('裁决失败：' + err.message);
+    }
+}
+
+async function loadBatches() {
+    const dataset_id = currentDataset();
+    if (!dataset_id) return;
+    const rows = await API.get(`/api/reviews/batches?dataset_id=${dataset_id}`);
+    const body = document.getElementById('batchBody');
+    body.innerHTML = rows.length ? rows.map((b) => `<tr>
+        <td>#${b.id}</td>
+        <td><span class="tag">${b.salt || '-'}</span></td>
+        <td>${b.sampled}</td>
+        <td style="font-size:12px;color:#666;">${(b.episodes || []).join(', ')}</td>
+        <td>${b.reviewed_total}</td>
+        <td style="font-size:12px;color:#999;">${b.created_at}</td>
+        <td style="font-size:12px;color:#999;">${b.note || '-'}</td>
+      </tr>`).join('')
+      : '<tr><td colspan="7" style="text-align:center;color:#999;padding:18px;">还没有批次</td></tr>';
+}
+
+function playVideo(datasetId, episodeIndex) {
+    document.getElementById('videoCard').style.display = 'block';
+    document.getElementById('videoTitle').textContent = `视频预览 · episode ${episodeIndex}`;
+    const vid = document.getElementById('vid');
+    vid.src = `/api/episodes/${datasetId}/${episodeIndex}/video`;
+    vid.load();
+}
+
+loadBatches();
+loadQueue();
+loadAgreement();
+</script>
+{% endblock %}

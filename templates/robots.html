@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block page_title %}机器人管理{% endblock %}
+{% block content %}
+<div class="flex mb-12">
+    <div><span class="text-muted">🤖 按<b>本体</b>聚合的真实数据 + <b>设备在环探测</b>（真的去问一遍本机有没有相机/串口/RealSense，采集前先看这里）</span></div>
+    <button class="btn btn-primary" onclick="location.reload()">刷新</button>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">设备在环探测</h3>
+        <button class="btn btn-primary btn-sm" onclick="doProbe()">现在探测一次</button>
+    </div>
+    <div id="probeMsg" style="font-size:13px;color:#666;margin-bottom:10px;"></div>
+
+    {% if scans %}
+    {% set s = scans[0] %}
+    <div style="background:{% if s.realsense and s.realsense.devices %} #f6ffed{% elif s.cameras or (s.ports and s.ports.ports) %} #f6ffed{% else %}#fffbe6{% endif %};border-radius:8px;padding:14px;">
+        <div style="font-weight:600;margin-bottom:8px;">
+            最近一次探测：{{ s.ts }}
+            <span class="status-badge {% if s.cameras or (s.ports and s.ports.ports) or (s.realsense and s.realsense.devices) %}status-done{% else %}status-paused{% endif %}">
+                {{ s.summary }}</span>
+        </div>
+        <table class="table" style="background:#fff;">
+            <tr><th style="width:130px;">相机（UVC）</th>
+                <td>{% if s.cameras %}
+                        {% for cam in s.cameras %}
+                        <div>设备 {{ cam.index }}（{{ cam.backend }}）：{{ cam.width }}×{{ cam.height }} @{{ cam.fps }}fps
+                            {% if cam.read_ok %}<span class="status-badge status-done">可读帧</span>
+                            {% else %}<span class="status-badge status-error">打不开帧</span>{% endif %}</div>
+                        {% endfor %}
+                    {% else %}<span class="text-muted">没有可用相机（cv2 依次尝试打开 0~3 号设备都失败）</span>{% endif %}</td></tr>
+            <tr><th>串口（机械臂）</th>
+                <td>{% if s.ports and s.ports.ports %}
+                        {% for port in s.ports.ports %}<span class="tag">{{ port }}</span> {% endfor %}
+                        <span class="text-muted" style="font-size:12px;">（枚举方式：{{ s.ports.method }}）</span>
+                    {% else %}<span class="text-muted">没有 COM 口（枚举方式：{{ s.ports.method if s.ports else '-' }}）</span>{% endif %}</td></tr>
+            <tr><th>RealSense</th>
+                <td>{% if s.realsense and s.realsense.sdk %}
+                        SDK 可用，设备 {{ (s.realsense.devices or [])|length }} 个
+                        {% for d in s.realsense.devices or [] %}<div class="text-muted">{{ d.name }}（SN {{ d.serial }}）</div>{% endfor %}
+                    {% else %}<span class="text-muted">SDK 缺失：{{ s.realsense.error if s.realsense else '-' }}</span>{% endif %}</td></tr>
+        </table>
+    </div>
+    {% else %}
+    <div class="text-muted">还没有探测记录，点右上角「现在探测一次」。探测会真实打开相机设备并读一帧、读注册表枚举串口、尝试加载 RealSense SDK。</div>
+    {% endif %}
+
+    {% if scans|length > 1 %}
+    <table class="table" style="margin-top:12px;">
+        <tr><th>时间</th><th>结论</th><th>操作人</th></tr>
+        {% for s in scans %}
+        <tr><td style="font-size:12px;">{{ s.ts }}</td><td style="font-size:12px;">{{ s.summary }}</td><td>{{ s.operator }}</td></tr>
+        {% endfor %}
+    </table>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3>按本体的数据分布</h3>
+    <table class="table">
+        <tr><th>本体</th><th>数据集</th><th>episodes</th><th>帧数</th><th>视频</th><th>采集会话</th><th>会话采帧</th><th>最近刷新</th></tr>
+        {% for r in robots %}
+        <tr>
+            <td><strong>{{ r.robot_type }}</strong>
+                <div class="text-muted" style="font-size:11px;">{{ r.dataset_list|join('、') }}</div></td>
+            <td>{{ r.datasets }}</td>
+            <td>{{ r.episodes }}</td>
+            <td>{{ r.frames }}</td>
+            <td>{{ r.videos }}</td>
+            <td>{{ r.sessions }}</td>
+            <td>{{ r.session_frames }}</td>
+            <td style="font-size:12px;color:#8896ab;">{{ r.last_seen or '-' }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <div class="text-muted" style="margin-top:8px;">
+        `unknown` 是本机导入的 pusht 夹具（没有机器人元数据）；`realman-7dof` 是自有轨迹与采集。
+    </div>
+</div>
+
+<div class="card">
+    <h3>采集会话（最近 10 次）</h3>
+    <table class="table">
+        <tr><th>#</th><th>数据集</th><th>来源</th><th>状态</th><th>帧数</th><th>episode</th><th>时间</th></tr>
+        {% for s in sessions %}
+        <tr>
+            <td>{{ s.id }}</td><td>{{ s.dataset_name }}</td><td><span class="tag">{{ s.source }}</span></td>
+            <td><span class="status-badge {% if s.status == 'committed' %}status-done{% elif s.status == 'open' %}status-running{% else %}status-offline{% endif %}">{{ s.status }}</span></td>
+            <td>{{ s.frames }}</td>
+            <td>{{ s.episode_index if s.episode_index is not none else '-' }}</td>
+            <td style="font-size:12px;color:#8896ab;">{{ s.created_at }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <div class="text-muted" style="margin-top:8px;">
+        累计 {{ session_totals.total }} 次会话，其中 {{ session_totals.committed }} 次已提交，共采 {{ session_totals.frames }} 帧。
+    </div>
+</div>
+
+<script>
+async function doProbe() {
+    setMsg('probeMsg', '探测中（会真的尝试打开相机设备）…');
+    try {
+        const r = await API.post('/api/devices/probe', {});
+        setMsg('probeMsg', r.summary + (r.ready ? '：设备已就绪' : '：没有探测到任何设备') + '，刷新页面看结果', 'ok');
+    } catch (err) {
+        setMsg('probeMsg', '探测失败：' + err.message, 'error');
+    }
+}
+</script>
+{% endblock %}

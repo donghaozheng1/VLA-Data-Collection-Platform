@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数采平台</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: "Microsoft YaHei", sans-serif; background: #f0f2f5; }
+        .app { display: flex; min-height: 100vh; }
+        .sidebar { width: 230px; background: #1a3c5e; color: #fff; position: fixed; top: 0; left: 0; bottom: 0; overflow-y: auto; }
+        .sidebar .logo { padding: 22px 20px; font-size: 17px; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .sidebar .logo span { color: #5b9cf5; }
+        .sidebar .menu { list-style: none; padding: 12px 0; }
+        .sidebar .menu li a { display: block; padding: 11px 24px; color: rgba(255,255,255,0.7); text-decoration: none; transition: 0.2s; font-size: 14px; }
+        .sidebar .menu li a:hover, .sidebar .menu li a.active { background: rgba(255,255,255,0.1); color: #fff; }
+        .main { margin-left: 230px; flex: 1; display: flex; flex-direction: column; min-height: 100vh; }
+        .header { background: #fff; padding: 16px 32px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+        .header h1 { font-size: 20px; color: #1a3c5e; }
+        .header .user { display: flex; align-items: center; gap: 16px; font-size: 14px; }
+        .header .user a { color: #2b7de9; text-decoration: none; }
+        .content { padding: 24px 32px; flex: 1; }
+        .card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 16px; }
+        .card h3 { font-size: 16px; color: #1a3c5e; margin-bottom: 12px; }
+        .table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        .table th { background: #f7f9fc; text-align: left; padding: 10px 12px; color: #666; font-weight: 600; border-bottom: 2px solid #e9edf4; }
+        .table td { padding: 10px 12px; border-bottom: 1px solid #e9edf4; }
+        .table tr:hover { background: #f7f9fc; }
+        .status-badge { display: inline-block; padding: 2px 12px; border-radius: 12px; font-size: 12px; }
+        .status-online { background: #e6f7e6; color: #52c41a; }
+        .status-offline { background: #f5f5f5; color: #999; }
+        .status-running { background: #e6f7ff; color: #1890ff; }
+        .status-done { background: #e6f7e6; color: #52c41a; }
+        .status-paused { background: #fff7e6; color: #faad14; }
+        .status-error { background: #fff1f0; color: #ff4d4f; }
+        .btn { padding: 6px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
+        .btn-primary { background: #2b7de9; color: #fff; }
+        .btn-primary:hover { background: #1a6cd6; }
+        .btn-sm { padding: 4px 10px; font-size: 12px; }
+        .tag { display: inline-block; background: #f0f4ff; color: #2b7de9; padding: 0 8px; border-radius: 3px; font-size: 12px; margin-right: 4px; }
+        .flex { display: flex; justify-content: space-between; align-items: center; }
+        .mb-12 { margin-bottom: 12px; }
+        .text-muted { color: #999; font-size: 13px; }
+    </style>
+    <script src="/static/js/platform.js"></script>
+</head>
+<body>
+    <div class="app">
+        <aside class="sidebar">
+            <div class="logo">📦 数采平台<br/>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Data Platform</div>
+            <ul class="menu">
+                <li><a href="/dashboard" class="{% if request.url.path == '/dashboard' %}active{% endif %}">📊 工作台</a></li>
+                <li><a href="/semantics" class="{% if request.url.path.startswith('/semantics') %}active{% endif %}">📖 数据定义</a></li>
+                <li><a href="/robots" class="{% if request.url.path.startswith('/robots') %}active{% endif %}">🤖 机器人管理</a></li>
+                <li><a href="/scenes" class="{% if request.url.path.startswith('/scenes') %}active{% endif %}">📋 情景管理</a></li>
+                <li><a href="/collect" class="{% if request.url.path.startswith('/collect') %}active{% endif %}">🛰 采集接入</a></li>
+                <li><a href="/simulation" class="{% if request.url.path.startswith('/simulation') %}active{% endif %}">🎬 仿真直播</a></li>
+                <li><a href="/data" class="{% if request.url.path.startswith('/data') %}active{% endif %}">📁 数据管理</a></li>
+                <li><a href="/viewer" class="{% if request.url.path.startswith('/viewer') %}active{% endif %}">🎬 数据浏览</a></li>
+                <li><a href="/preprocess" class="{% if request.url.path.startswith('/preprocess') %}active{% endif %}">🔧 数据预处理</a></li>
+                <li><a href="/qc" class="{% if request.url.path.startswith('/qc') %}active{% endif %}">✅ 数据质检</a></li>
+                <li><a href="/annotation" class="{% if request.url.path.startswith('/annotation') %}active{% endif %}">✏️ 数据标注</a></li>
+                <li><a href="/reviews" class="{% if request.url.path.startswith('/reviews') %}active{% endif %}">🔍 标注抽检</a></li>
+                <li><a href="/export" class="{% if request.url.path.startswith('/export') %}active{% endif %}">📤 数据集导出</a></li>
+                <li><a href="/models" class="{% if request.url.path.startswith('/models') %}active{% endif %}">🧩 模型管理</a></li>
+                <li><a href="/training" class="{% if request.url.path.startswith('/training') %}active{% endif %}">🧠 模型训练</a></li>
+                <li><a href="/interfaces" class="{% if request.url.path.startswith('/interfaces') %}active{% endif %}">🔌 接口管理</a></li>
+                <li><a href="/system" class="{% if request.url.path.startswith('/system') %}active{% endif %}">⚙️ 系统管理</a></li>
+                <li><a href="/log" class="{% if request.url.path.startswith('/log') %}active{% endif %}">📜 系统日志</a></li>
+            </ul>
+        </aside>
+
+        <div class="main">
+            <header class="header">
+                <h1>{% block page_title %}工作台{% endblock %}</h1>
+                <div class="user">
+                    {% if request.state.user %}
+                    <span>👤 {{ request.state.user.username }}</span>
+                    {% else %}
+                    <a href="/">👤 未登录</a>
+                    {% endif %}
+                    <a href="/auth/settings">⚙️ 设置</a>
+                    <a href="/auth/logout">🚪 注销</a>
+                </div>
+            </header>
+            <div class="content">
+                {% block content %}{% endblock %}
+            </div>
+        </div>
+    </div>
+    
+</body>
+</html>

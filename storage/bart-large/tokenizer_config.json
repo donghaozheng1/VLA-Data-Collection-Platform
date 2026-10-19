@@ -1,0 +1,54 @@
+{
+  "tokenizer_class": "BartTokenizer",
+  "model_max_length": 1024,
+  "clean_up_tokenization_spaces": true,
+  "bos_token": {
+    "content": "<s>",
+    "lstrip": false,
+    "rstrip": false,
+    "normalized": false,
+    "single_word": false
+  },
+  "eos_token": {
+    "content": "</s>",
+    "lstrip": false,
+    "rstrip": false,
+    "normalized": false,
+    "single_word": false
+  },
+  "unk_token": {
+    "content": "<unk>",
+    "lstrip": false,
+    "rstrip": false,
+    "normalized": false,
+    "single_word": false
+  },
+  "sep_token": {
+    "content": "</s>",
+    "lstrip": false,
+    "rstrip": false,
+    "normalized": false,
+    "single_word": false
+  },
+  "pad_token": {
+    "content": "<pad>",
+    "lstrip": false,
+    "rstrip": false,
+    "normalized": false,
+    "single_word": false
+  },
+  "cls_token": {
+    "content": "<s>",
+    "lstrip": false,
+    "rstrip": false,
+    "normalized": false,
+    "single_word": false
+  },
+  "mask_token": {
+    "content": "<mask>",
+    "lstrip": false,
+    "rstrip": false,
+    "normalized": false,
+    "single_word": false
+  }
+}

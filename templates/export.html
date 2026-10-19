@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block page_title %}数据集导出{% endblock %}
+{% block content %}
+<div class="flex mb-12">
+    <div><span class="text-muted">📤 导出成真实 LeRobot v2.1 数据集（data/*.parquet + videos/*.mp4 + meta/info.json、tasks.jsonl、episodes.jsonl、episodes_stats.jsonl），并打包 zip 下载</span></div>
+</div>
+
+<div class="card">
+    <h3>新建导出任务</h3>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">数据集</label>
+            <select id="dsSel" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;min-width:220px;"></select>
+        </div>
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">范围</label>
+            <select id="modeSel" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;">
+                <option value="all">全部 episode</option>
+                <option value="qc_pass">只导出质检通过的</option>
+            </select>
+        </div>
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">输出名称</label>
+            <input id="outName" placeholder="留空自动命名" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;">
+        </div>
+        <button class="btn btn-primary" onclick="doExport()">开始导出</button>
+    </div>
+    <div id="exBarWrap" style="display:none;background:#e9edf4;border-radius:6px;height:8px;margin-top:12px;"><div id="exBar" style="background:#2b7de9;height:8px;border-radius:6px;width:2%;"></div></div>
+    <div id="exMsg" style="font-size:13px;color:#666;margin-top:8px;"></div>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">📋 导出产物</h3>
+        <button class="btn btn-sm" style="background:#f0f0f0;" onclick="loadArtifacts()">刷新</button>
+    </div>
+    <table class="table">
+        <tr><th>ID</th><th>文件</th><th>大小</th><th>时间</th><th>操作</th></tr>
+        <tbody id="artBody"><tr><td colspan="5" style="text-align:center;color:#999;padding:20px;">加载中…</td></tr></tbody>
+    </table>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">📐 数据划分（train / val / test）</h3>
+        <button class="btn btn-sm" style="background:#f0f0f0;" onclick="loadSplits()">刷新</button>
+    </div>
+    <div class="text-muted" style="margin-bottom:10px;">
+        本机大多数数据集的 <code>info.json</code> 里 splits 都写成 <code>0:N</code>（全训练）——
+        训练与评估没有隔离，<b>评估结果不可复现</b>。这里做可复现的划分：
+        <b>random</b> 由 <code>sha256(salt:episode_index)</code> 决定，只靠 salt 就能复现，写 <code>meta/splits.json</code>；
+        <b>ordered</b> 按顺序切连续区间，同时写进 <code>info.json</code> 的 LeRobot 原生 splits。
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">数据集</label>
+            <select id="spDataset" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;min-width:220px;"></select>
+        </div>
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">salt（决定随机划分）</label>
+            <input id="spSalt" value="v1" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:110px;">
+        </div>
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">模式</label>
+            <select id="spMode" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;">
+                <option value="random">random（可复现随机）</option>
+                <option value="ordered">ordered（连续区间）</option>
+            </select>
+        </div>
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">train / val / test</label>
+            <input id="spTrain" value="0.8" style="width:56px;padding:6px 8px;border:1px solid #d9d9d9;border-radius:4px;">
+            <input id="spVal" value="0.1" style="width:56px;padding:6px 8px;border:1px solid #d9d9d9;border-radius:4px;">
+            <input id="spTest" value="0.1" style="width:56px;padding:6px 8px;border:1px solid #d9d9d9;border-radius:4px;">
+        </div>
+        <button class="btn btn-primary" onclick="doAssign()">执行划分</button>
+    </div>
+    <div id="spMsg" style="font-size:13px;color:#666;margin-bottom:8px;"></div>
+    <table class="table">
+        <tr><th>数据集</th><th>episodes</th><th>train</th><th>val</th><th>test</th><th>salt / 模式</th><th>按划分导出</th></tr>
+        <tbody id="spBody"><tr><td colspan="7" style="text-align:center;color:#999;padding:18px;">加载中…</td></tr></tbody>
+    </table>
+</div>
+
+<div class="card">
+    <h3>⚙️ 导出任务</h3>
+    <table class="table">
+        <tr><th>ID</th><th>类型</th><th>状态</th><th>进度</th><th>消息</th><th>创建时间</th><th>操作</th></tr>
+        <tbody id="jobBody"></tbody>
+    </table>
+</div>
+
+<script>
+async function loadDatasets() {
+    const ds = await API.get('/api/datasets');
+    document.getElementById('dsSel').innerHTML = ds.map((d) =>
+        `<option value="${d.id}">${d.name}（${d.total_episodes} 条）</option>`).join('');
+}
+
+async function doExport() {
+    const dataset_id = parseInt(document.getElementById('dsSel').value, 10);
+    if (!dataset_id) return alert('请先接入一个数据集');
+    const payload = {
+        dataset_id,
+        mode: document.getElementById('modeSel').value,
+        name: document.getElementById('outName').value.trim() || undefined,
+    };
+    const job = await runJob('export', payload, { barId: 'exBar', msgId: 'exMsg' });
+    if (job.status === 'succeeded') {
+        const r = job.result || {};
+        setMsg('exMsg', `完成：${r.episodes} 条 / ${r.frames} 帧 / ${fmtBytes(r.bytes)} → ${r.zip}`, 'ok');
+        await Promise.all([loadArtifacts(), renderJobs('jobBody', 10)]);
+    }
+}
+
+async function loadArtifacts() {
+    const rows = await API.get('/api/artifacts?limit=20');
+    const body = document.getElementById('artBody');
+    if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;padding:20px;">还没有产物</td></tr>';
+        return;
+    }
+    body.innerHTML = rows.map((a) => `<tr>
+        <td>${a.id}</td>
+        <td style="font-size:13px;">${a.path.split('\\').pop()}</td>
+        <td>${fmtBytes(a.bytes)}</td>
+        <td style="font-size:12px;color:#999;">${a.created_at}</td>
+        <td><a class="btn btn-primary btn-sm" href="/api/artifacts/${a.id}/download">下载</a></td>
+      </tr>`).join('');
+}
+
+async function loadSplits() {
+    const rows = await API.get('/api/splits/overview');
+    const sel = document.getElementById('spDataset');
+    sel.innerHTML = rows.map((d) =>
+        `<option value="${d.dataset_id}">${d.name}（${d.total_episodes} 条）</option>`).join('');
+    const body = document.getElementById('spBody');
+    body.innerHTML = rows.map((d) => {
+        const c = d.counts || {};
+        const buttons = ['train', 'val', 'test']
+            .filter((s) => (c[s] || 0) > 0)
+            .map((s) => `<button class="btn btn-sm" style="background:#f0f0f0;"
+                onclick="exportSplit(${d.dataset_id}, '${s}')">导出 ${s}(${c[s]})</button>`).join(' ');
+        return `<tr>
+            <td><strong>${d.name}</strong></td>
+            <td>${d.total_episodes}</td>
+            <td>${c.train === undefined ? '-' : c.train}</td>
+            <td>${c.val === undefined ? '-' : c.val}</td>
+            <td>${c.test === undefined ? '-' : c.test}</td>
+            <td style="font-size:12px;color:#8896ab;">${d.assigned ? d.salt + ' / ' + d.mode : '未划分'}</td>
+            <td style="white-space:nowrap;">${buttons || '<span class="text-muted">未划分</span>'}</td>
+        </tr>`;
+    }).join('');
+}
+
+async function doAssign() {
+    const dataset_id = parseInt(document.getElementById('spDataset').value, 10);
+    if (!dataset_id) return alert('请先接入一个数据集');
+    const ratios = {
+        train: parseFloat(document.getElementById('spTrain').value),
+        val: parseFloat(document.getElementById('spVal').value),
+        test: parseFloat(document.getElementById('spTest').value),
+    };
+    setMsg('spMsg', '划分中…');
+    try {
+        const r = await API.post('/api/splits/assign', {
+            dataset_id, ratios,
+            salt: document.getElementById('spSalt').value.trim() || 'v1',
+            mode: document.getElementById('spMode').value,
+        });
+        setMsg('spMsg', `已划分 ${r.episodes} 条：`
+            + Object.entries(r.counts).map(([k, v]) => `${k} ${v}`).join('、')
+            + (r.warnings && r.warnings.length ? ` ⚠️ ${r.warnings.join('；')}` : '')
+            + (r.meta_written ? `　已写 ${r.meta_written.length} 个元数据文件` : ''), 'ok');
+        await loadSplits();
+    } catch (err) {
+        setMsg('spMsg', '划分失败：' + err.message, 'error');
+    }
+}
+
+async function exportSplit(dataset_id, split) {
+    setMsg('spMsg', `导出 ${split} 划分…`);
+    const job = await runJob('export', { dataset_id, mode: 'split', split },
+        { barId: 'exBar', msgId: 'spMsg' });
+    if (job.status === 'succeeded') {
+        const r = job.result || {};
+        setMsg('spMsg', `${split} 划分导出完成：${r.episodes} 条 / ${r.frames} 帧 → ${r.zip}`, 'ok');
+        await Promise.all([loadArtifacts(), renderJobs('jobBody', 10)]);
+    }
+}
+
+loadDatasets();
+loadArtifacts();
+loadSplits();
+renderJobs('jobBody', 10);
+</script>
+{% endblock %}

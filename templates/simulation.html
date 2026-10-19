@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block page_title %}🎬 仿真直播{% endblock %}
+{% block content %}
+<div class="flex mb-12">
+    <div><span class="text-muted">LIBERO 离屏仿真 → 帧流式推送到浏览器，实时观看策略在仿真中的动作，并录制成 mp4</span></div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px;">
+    <div class="card" style="text-align:center;padding:18px;margin-bottom:0;">
+        <div id="statState" style="font-size:20px;font-weight:700;color:#2b7de9;">未开始</div>
+        <div class="text-muted">运行状态</div>
+    </div>
+    <div class="card" style="text-align:center;padding:18px;margin-bottom:0;">
+        <div id="statStep" style="font-size:24px;font-weight:700;color:#1890ff;">0 / 0</div>
+        <div class="text-muted">进度（步）</div>
+    </div>
+    <div class="card" style="text-align:center;padding:18px;margin-bottom:0;">
+        <div id="statSpeed" style="font-size:24px;font-weight:700;color:#722ed1;">—</div>
+        <div class="text-muted">实测速度（步/秒）</div>
+    </div>
+    <div class="card" style="text-align:center;padding:18px;margin-bottom:0;">
+        <div id="statViewers" style="font-size:24px;font-weight:700;color:#faad14;">0</div>
+        <div class="text-muted">观看流数</div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">🕹 仿真控制</h3>
+        <span id="simTaskTag" class="tag">libero_10 目标任务</span>
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+        <div>
+            <label style="font-size:12px;display:block;">模式</label>
+            <select id="simMode" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;min-width:200px;"
+                    onchange="simModeChanged()">
+                <option value="libero">策略仿真（LIBERO）</option>
+                <option value="zhiyan_replay">轨迹回放（zhiyan 真机数据）</option>
+                <option value="zhiyan_policy">模型仿真（zhiyan + 我的模型）</option>
+            </select>
+        </div>
+        <div id="simEpisodeBox" style="display:none;">
+            <label style="font-size:12px;display:block;">episode</label>
+            <input id="simEpisode" type="number" value="0" min="0" max="6"
+                   style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:80px;">
+        </div>
+        <div id="simPolicyBox">
+            <label style="font-size:12px;display:block;">策略</label>
+            <select id="simPolicy" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;min-width:360px;">
+                <option value="">脚本动作（演示用）</option>
+            </select>
+        </div>
+        <div id="simStepsBox">
+            <label style="font-size:12px;display:block;">步数</label>
+            <input id="simSteps" type="number" value="600" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:96px;">
+        </div>
+        <div>
+            <label style="font-size:12px;display:block;">分辨率</label>
+            <select id="simSize" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;">
+                <option value="256">256</option>
+                <option value="128">128</option>
+                <option value="512">512</option>
+            </select>
+        </div>
+        <button class="btn btn-primary" onclick="simStart()">▶ 开始</button>
+        <button class="btn" style="background:#f0f0f0;" onclick="simPause()">⏸ 暂停</button>
+        <button class="btn" style="background:#f0f0f0;" onclick="simResume()">⏵ 继续</button>
+        <button class="btn" style="background:#f0f0f0;" onclick="simStop()">⏹ 停止</button>
+        <a class="btn" style="background:#f0f0f0;text-decoration:none;color:#333;" href="/api/sim/video" target="_blank">⬇ 下载录像</a>
+    </div>
+    <div id="simMsg" style="font-size:13px;color:#666;margin-top:10px;"></div>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">📺 实时画面</h3>
+        <span id="simBadge" class="status-badge status-offline">未开始</span>
+    </div>
+    <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;">
+        <img id="simView" src="/api/sim/frame"
+             style="width:512px;max-width:100%;background:#111;border-radius:8px;border:1px solid #e9edf4;"
+             alt="仿真画面（点开始后出现）">
+        <div style="min-width:260px;" class="text-muted">
+            <div id="simStatus" style="font-size:13px;line-height:1.9;">尚未开始</div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3>说明</h3>
+    <ul class="text-muted" style="font-size:13px;line-height:1.9;margin-left:18px;">
+        <li>策略可选<b>脚本动作</b>（内置固定动作序列，用于验证链路）或<b>训练产出的 ACT 模型</b>。</li>
+        <li>仿真在<b>服务端子进程</b>里跑（离屏渲染），不需要本机开窗口；同一套 rollout 会录成 mp4，播放速度为真实速度。</li>
+        <li>实测速度约 4~11 步/秒（256px，视机器负载），达不到标称 20fps 属正常。</li>
+        <li>想在本机看<b>真·3D 实时窗口</b>：在自己终端跑 <code>python tools\libero_demo.py --live</code></li>
+    </ul>
+</div>
+
+<script>
+let simTimer = null;
+let viewTimer = null;
+
+const SIM_BADGE = {
+    idle: ['status-offline', '未开始'],
+    starting: ['status-paused', '启动中'],
+    running: ['status-running', '运行中'],
+    paused: ['status-paused', '已暂停'],
+    finished: ['status-done', '已完成'],
+    failed: ['status-error', '失败'],
+};
+
+// 只有点了「开始」才轮询：没开始时页面不该反复请求（否则 <img> 一直重试会闪）
+function startViewLoop() {
+    if (viewTimer) clearInterval(viewTimer);
+    viewTimer = setInterval(() => {
+        const img = document.getElementById('simView');
+        img.src = '/api/sim/frame?t=' + Date.now();     // 每帧都换 URL，绕开缓存
+    }, 80);
+}
+function stopViewLoop() { if (viewTimer) { clearInterval(viewTimer); viewTimer = null; } }
+
+async function simStart() {
+    setMsg('simMsg', '正在启动仿真…');
+    const policy = document.getElementById('simPolicy').value;
+    await API.post('/api/sim/start', {
+        steps: Number(document.getElementById('simSteps').value) || 600,
+        size: Number(document.getElementById('simSize').value) || 256,
+        fps: 20, seed: 0,
+        policy_path: policy || null,
+        mode: document.getElementById('simMode').value,
+        episode: Number(document.getElementById('simEpisode').value) || 0,
+    });
+    setMsg('simMsg', '已启动：' + (policy ? '模型 ' + policy.split('/').slice(-3, -2)[0] : '脚本动作'), 'ok');
+    startViewLoop();
+    simPoll();
+}
+async function simPause()  { setMsg('simMsg', JSON.stringify(await API.post('/api/sim/pause', {}))); }
+async function simResume() { setMsg('simMsg', JSON.stringify(await API.post('/api/sim/resume', {}))); }
+async function simStop()   { stopViewLoop(); setMsg('simMsg', '已停止。点「▶ 开始」重新跑。', 'ok'); }
+
+function simPoll() {
+    if (simTimer) clearInterval(simTimer);
+    simTimer = setInterval(async () => {
+        const s = await API.get('/api/sim/status');
+        const badge = SIM_BADGE[s.state] || ['status-offline', s.state];
+        const el = document.getElementById('simBadge');
+        el.className = 'status-badge ' + badge[0];
+        el.textContent = badge[1];
+
+        document.getElementById('statState').textContent = badge[1];
+        document.getElementById('statStep').textContent = `${s.step} / ${s.steps}`;
+        document.getElementById('statSpeed').textContent = s.sps ? s.sps : '—';
+        document.getElementById('statViewers').textContent = s.viewers || 0;
+
+        document.getElementById('simTaskTag').textContent = s.task || 'libero_10 目标任务';
+        document.getElementById('simStatus').innerHTML =
+            `当前策略：<b>${s.policy ? 'ACT 模型' : '脚本动作（演示）'}</b><br>`
+          + `奖励：${s.reward}<br>用时：${s.seconds}s<br>`
+          + (s.video_fps ? `录像帧率：${s.video_fps}fps（真实速度）<br>` : '')
+          + (s.error ? `<span style="color:#c00;">错误：${s.error}</span><br>` : '')
+          + (s.video ? `录像：<code>${s.video}</code>` : '');
+
+        if (['finished', 'failed'].includes(s.state)) { clearInterval(simTimer); stopViewLoop(); }
+    }, 1000);
+}
+simPoll();
+
+/* 下拉里列出模型库里所有策略模型（含兼容性标注） */
+async function loadSimModels() {
+    const sel = document.getElementById('simPolicy');
+    if (!sel) return;
+    const keep = sel.value;
+    try {
+        const data = await API.get('/api/sim/models');
+        const opts = (data.models || []).map((m) => {
+            const mark = m.compatible ? '✅' : '⚠️';
+            const parts = [];
+            if (m.steps) parts.push(m.steps + ' 步');
+            if (m.dataset) parts.push(m.dataset);
+            if (m.state_dim) parts.push('state ' + m.state_dim + 'D');
+            if (m.cameras && m.cameras.length) parts.push(m.cameras.length + ' 路相机');
+            const note = m.compatible ? '' : '  ← 与 LIBERO 观测不匹配，选了会失败';
+            return `<option value="${m.policy_path}">${mark} 模型 #${m.id} ${m.kind}`
+                 + `（${parts.join(' · ')}）${note}</option>`;
+        }).join('');
+        sel.innerHTML = '<option value="">脚本动作（演示用）</option>' + opts;
+        if (keep) sel.value = keep;
+        document.getElementById('simMsg').textContent =
+            `已加载 ${(data.models || []).length} 个可用策略模型（✅ 可用于本仿真）`;
+    } catch (err) {
+        document.getElementById('simMsg').textContent = '模型列表加载失败：' + err.message;
+    }
+}
+function simModeChanged() {
+    const m = document.getElementById('simMode').value;
+    const isReplay = (m === 'zhiyan_replay');
+    const isPolicy = (m === 'zhiyan_policy');
+    document.getElementById('simEpisodeBox').style.display = (isReplay || isPolicy) ? 'block' : 'none';
+    document.getElementById('simPolicyBox').style.display = isReplay ? 'none' : 'block';
+    document.getElementById('simTaskTag').textContent = isPolicy
+        ? 'zhiyan pick_and_place（模型驱动仿真）'
+        : (isReplay ? 'zhiyan pick_and_place（真机轨迹回放）' : 'libero_10 目标任务');
+
+}
+simModeChanged();
+loadSimModels();
+
+</script>
+{% endblock %}

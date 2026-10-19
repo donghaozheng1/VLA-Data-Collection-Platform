@@ -1,0 +1,557 @@
+{% extends "base.html" %}
+{% block page_title %}模型训练与评估{% endblock %}
+{% block content %}
+<div class="flex mb-12">
+    <div><span class="text-muted">🧠 真实训练产物台账：解析 LeRobot 的 train_config / 训练日志 / eval_info，记录数据集版本与内容哈希，并把评估失败样本回灌</span></div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px;">
+    <div class="card" style="text-align:center;padding:18px;margin-bottom:0;"><div style="font-size:24px;font-weight:700;color:#2b7de9;">{{ stats.experiments }}</div><div class="text-muted">已登记实验</div></div>
+    <div class="card" style="text-align:center;padding:18px;margin-bottom:0;"><div style="font-size:24px;font-weight:700;color:#722ed1;">{{ stats.metrics }}</div><div class="text-muted">训练指标点</div></div>
+    <div class="card" style="text-align:center;padding:18px;margin-bottom:0;"><div style="font-size:24px;font-weight:700;color:#1890ff;">{{ stats.evaluations }}</div><div class="text-muted">离线评估</div></div>
+    <div class="card" style="text-align:center;padding:18px;margin-bottom:0;"><div style="font-size:24px;font-weight:700;color:#faad14;">{{ stats.bad_open }}</div><div class="text-muted">未处理 bad case</div></div>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">📐 数据划分（train / val / test）</h3>
+        <button class="btn btn-sm" style="background:#f0f0f0;" onclick="loadSplits()">刷新</button>
+    </div>
+    <div class="text-muted" style="margin-bottom:10px;">
+        本机大多数数据集的 <code>info.json</code> 里 splits 都写成 <code>0:N</code>（全训练）——
+        训练与评估没有隔离，<b>评估结果不可复现</b>。这里做可复现的划分：
+        <b>random</b> 由 <code>sha256(salt:episode_index)</code> 决定，只靠 salt 就能复现，写 <code>meta/splits.json</code>；
+        <b>ordered</b> 按顺序切连续区间，同时写进 <code>info.json</code> 的 LeRobot 原生 splits。
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">数据集</label>
+            <select id="spDataset" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;min-width:220px;"></select>
+        </div>
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">salt（决定随机划分）</label>
+            <input id="spSalt" value="v1" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:110px;">
+        </div>
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">模式</label>
+            <select id="spMode" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;">
+                <option value="random">random（可复现随机）</option>
+                <option value="ordered">ordered（连续区间）</option>
+            </select>
+        </div>
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">train / val / test</label>
+            <input id="spTrain" value="0.8" style="width:56px;padding:6px 8px;border:1px solid #d9d9d9;border-radius:4px;">
+            <input id="spVal" value="0.1" style="width:56px;padding:6px 8px;border:1px solid #d9d9d9;border-radius:4px;">
+            <input id="spTest" value="0.1" style="width:56px;padding:6px 8px;border:1px solid #d9d9d9;border-radius:4px;">
+        </div>
+        <button class="btn btn-primary" onclick="doAssign()">执行划分</button>
+    </div>
+    <div id="spMsg" style="font-size:13px;color:#666;margin-bottom:8px;"></div>
+    <table class="table">
+        <tr><th>数据集</th><th>episodes</th><th>train</th><th>val</th><th>test</th><th>salt / 模式</th><th>按划分导出</th></tr>
+        <tbody id="spBody"><tr><td colspan="7" style="text-align:center;color:#999;padding:18px;">加载中…</td></tr></tbody>
+    </table>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">🚀 开始训练（网页里发起，产出模型）</h3>
+        <button class="btn btn-sm" style="background:#f0f0f0;" onclick="loadEnvs()">重新探测环境</button>
+    </div>
+    <div id="envBox" style="font-size:13px;color:#666;margin-bottom:10px;">探测中…</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+        <div>
+            <label style="font-size:12px;display:block;">数据集（未划分的不可选）</label>
+            <select id="trDataset" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;min-width:240px;"></select>
+        </div>
+        <div>
+            <label style="font-size:12px;display:block;">后端</label>
+            <select id="trBackend" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;">
+                <option value="builtin">builtin（平台自带：state→action 线性策略）</option>
+                <option value="lerobot">lerobot（真训练，需 torch+lerobot 环境）</option>
+            </select>
+        </div>
+        <div>
+            <label style="font-size:12px;display:block;">策略（lerobot）</label>
+            <select id="trPolicy" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;">
+                <option value="act">act（52M，快，无语言）</option>
+                <option value="smolvla">smolvla（450M，VLA，带语言）★8G 可试</option>
+                <option value="pi0">pi0（3.3B，VLA，需 ≥24G 显存）</option>
+                <option value="pi0fast">pi0fast（3.3B，VLA，需 ≥24G 显存）</option>
+                <option value="diffusion">diffusion（260M，无语言）</option>
+            </select>
+        </div>
+        <div>
+            <label style="font-size:12px;display:block;">训练划分</label>
+            <select id="trSplit" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;">
+                <option value="train">train</option><option value="val">val</option><option value="test">test</option>
+            </select>
+        </div>
+        <div>
+            <label style="font-size:12px;display:block;">步数（lerobot 用）</label>
+            <input id="trSteps" type="number" value="200" style="width:90px;padding:6px 8px;border:1px solid #d9d9d9;border-radius:4px;">
+        </div>
+        <div>
+            <label style="font-size:12px;display:block;">模型名</label>
+            <input id="trName" placeholder="可留空" style="width:170px;padding:6px 8px;border:1px solid #d9d9d9;border-radius:4px;">
+        </div>
+        <button class="btn btn-primary" onclick="startTraining()">开始训练</button>
+    </div>
+    <div id="trSplitHint" style="font-size:13px;color:#5a6b85;margin-top:10px;"></div>
+    <div id="trMsg" style="font-size:13px;color:#666;margin-top:10px;">
+        训练前**必须先做数据划分**（训练/评估隔离）；builtin 后端不使用图像，只学 state→action，
+        用来把「网页 → 训练 → 产出模型 → 下载」这条路走通。
+    </div>
+</div>
+
+<div class="card">
+    <div class="flex mb-12" style="gap:12px;align-items:center;">
+        <h3 style="margin-bottom:0;">📦 模型库（训练产出的模型）</h3>
+        <label style="font-size:12px;color:#c0392b;"><input type="checkbox" id="delFiles"> 删除时同时删除磁盘文件（checkpoint / 权重）</label>
+        <button class="btn btn-sm" style="background:#f0f0f0;" onclick="loadModels()">刷新</button>
+    </div>
+    <div id="modelMsg" style="font-size:13px;margin-bottom:8px;"></div>
+    <table class="table">
+        <tr><th>#</th><th>模型</th><th>后端</th><th>类型</th><th>数据集 / 划分</th><th>指标</th><th>大小</th><th>时间</th><th></th></tr>
+        <tbody id="modelBody"><tr><td colspan="9" style="text-align:center;color:#999;padding:18px;">加载中…</td></tr></tbody>
+    </table>
+</div>
+
+<div class="card">
+    <h3>① 扫描训练产物并登记</h3>
+    <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+        <div style="flex:1;min-width:360px;">
+            <label style="font-size:13px;display:block;margin-bottom:4px;">训练产物目录（LeRobot outputs）</label>
+            <input id="rootInput" value="{{ default_root }}" style="width:100%;padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;">
+        </div>
+        <button class="btn btn-primary" onclick="doScan()">扫描</button>
+    </div>
+    <div id="scanMsg" style="font-size:13px;color:#666;margin-top:10px;"></div>
+    <table class="table" style="margin-top:10px;">
+        <tr><th>训练目录</th><th>policy</th><th>数据集</th><th>steps</th><th>batch</th><th>lr</th><th>seed</th><th>checkpoint</th><th>日志指标</th><th>操作</th></tr>
+        <tbody id="runBody"><tr><td colspan="10" style="text-align:center;color:#999;padding:18px;">点「扫描」列出产物</td></tr></tbody>
+    </table>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">② 实验台账（含数据集版本与哈希）</h3>
+        <button class="btn btn-sm" style="background:#f0f0f0;" onclick="loadExperiments()">刷新</button>
+    </div>
+    <table class="table">
+        <tr><th>#</th><th>实验</th><th>policy</th><th>数据集</th><th>划分</th><th>steps</th><th>lr</th><th>指标点</th><th>评估</th><th>操作</th></tr>
+        <tbody id="expBody"><tr><td colspan="9" style="text-align:center;color:#999;padding:18px;">加载中…</td></tr></tbody>
+    </table>
+    <div id="expDetail" style="display:none;margin-top:16px;background:#f7f9fc;border-radius:8px;padding:16px;"></div>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">③ 离线评估（真实 pc_success）</h3>
+        <button class="btn btn-sm" style="background:#f0f0f0;" onclick="loadEvaluations()">刷新</button>
+    </div>
+    <table class="table">
+        <tr><th>#</th><th>评估</th><th>episodes</th><th>pc_success</th><th>avg_sum_reward</th><th>avg_max_reward</th><th>视频</th><th>操作</th></tr>
+        <tbody id="evalBody"><tr><td colspan="8" style="text-align:center;color:#999;padding:18px;">加载中…</td></tr></tbody>
+    </table>
+    <div id="evalDetail" style="display:none;margin-top:16px;background:#f7f9fc;border-radius:8px;padding:16px;"></div>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">④ bad case 与回灌</h3>
+        <div>
+            <button class="btn btn-sm" style="background:#f0f0f0;" onclick="doCollect()">从质检/标注收集</button>
+            <button class="btn btn-sm" style="background:#f0f0f0;" onclick="loadBadCases()">刷新</button>
+        </div>
+    </div>
+    <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px;">
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">回灌目标数据集（把该集未处理的 bad case 汇成困难集）</label>
+            <select id="bcDataset" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;min-width:240px;">
+                {% for d in datasets %}<option value="{{ d.id }}">{{ d.name }}（{{ d.total_episodes }} 条）</option>{% endfor %}
+            </select>
+        </div>
+        <button class="btn btn-primary" onclick="doReturn()">回灌为困难集</button>
+        <span id="bcMsg" style="font-size:13px;color:#666;"></span>
+    </div>
+    <div id="bcSummary" style="font-size:13px;color:#5a6b85;margin-bottom:10px;"></div>
+    <table class="table">
+        <tr><th>#</th><th>来源</th><th>数据集</th><th>episode</th><th>原因</th><th>详情</th><th>状态</th></tr>
+        <tbody id="bcBody"><tr><td colspan="7" style="text-align:center;color:#999;padding:18px;">加载中…</td></tr></tbody>
+    </table>
+</div>
+
+<script>
+function sparkline(points, key, width, height) {
+    const vals = points.map((p) => p[key]).filter((v) => v !== null && v !== undefined);
+    if (!vals.length) return '<span class="text-muted">无数据</span>';
+    const min = Math.min(...vals), max = Math.max(...vals), span = (max - min) || 1;
+    const step = width / Math.max(1, points.length - 1);
+    const pts = points.map((p, i) => {
+        const y = height - ((p[key] - min) / span) * (height - 16) - 8;
+        return `${(i * step).toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    return `<svg width="${width}" height="${height}" style="background:#fff;border:1px solid #e9edf4;border-radius:6px;">
+        <polyline points="${pts}" fill="none" stroke="#2b7de9" stroke-width="2"/></svg>
+        <div class="text-muted" style="font-size:12px;">min=${min.toFixed(4)} max=${max.toFixed(4)}（${points.length} 点）</div>`;
+}
+
+async function doScan() {
+    setMsg('scanMsg', '扫描中…');
+    const data = await API.post('/api/training/scan', { root: document.getElementById('rootInput').value.trim() });
+    const body = document.getElementById('runBody');
+    if (!data.runs.length) {
+        body.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#999;padding:18px;">该目录下没找到训练产物</td></tr>';
+        return;
+    }
+    window.__runs = data.runs;
+    body.innerHTML = data.runs.map((r, i) => `<tr>
+        <td style="font-size:12px;">${r.run_dir.split('\\\\').pop()}</td>
+        <td>${r.policy || '-'}</td>
+        <td style="font-size:12px;">${r.dataset_repo_id || '-'}</td>
+        <td>${r.steps ?? '-'}</td>
+        <td>${r.batch_size ?? '-'}</td>
+        <td>${r.lr ?? '-'}</td>
+        <td>${r.seed ?? '-'}</td>
+        <td>${r.checkpoints}</td>
+        <td>${r.log_points ?? 0}</td>
+        <td>${r.run_dir === '__evals__' ? '<span class="text-muted">评估集合</span>'
+            : `<button class="btn btn-primary btn-sm" onclick="doRegister(${i})">登记</button>`}</td>
+      </tr>`).join('');
+    setMsg('scanMsg', `发现 ${data.runs.length} 个条目`, 'ok');
+}
+
+async function doRegister(index) {
+    const run = window.__runs[index];
+    try {
+        const r = await API.post('/api/training/register', { run_dir: run.run_dir });
+        setMsg('scanMsg', `已登记实验 #${r.experiment_id}：指标点 ${r.metrics}，`
+            + `绑定数据集 ${r.dataset ? r.dataset.name + ' v' + r.dataset.version : '（未匹配）'}`, 'ok');
+        await Promise.all([loadExperiments(), loadEvaluations(), loadBadCases()]);
+    } catch (err) {
+        setMsg('scanMsg', '登记失败：' + err.message, 'error');
+    }
+}
+
+async function loadExperiments() {
+    const rows = await API.get('/api/training/experiments');
+    const body = document.getElementById('expBody');
+    if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#999;padding:18px;">还没有登记实验，先扫描并登记</td></tr>';
+        return;
+    }
+    body.innerHTML = rows.map((e) => `<tr>
+        <td>${e.id}</td>
+        <td><strong>${e.name}</strong><div class="text-muted" style="font-size:11px;">${e.run_dir || ''}</div></td>
+        <td><span class="tag">${e.policy || '-'}</span></td>
+        <td style="font-size:12px;">#${e.dataset_id || '-'} v${e.dataset_version || '-'}
+            <div class="text-muted" style="font-size:11px;">${(e.dataset_hash || '').slice(0, 10)}</div></td>
+        <td>${e.split ? `<span class="tag">${e.split}</span><div class="text-muted" style="font-size:11px;">salt ${e.split_salt || '-'}</div>` : '<span class="text-muted">未绑定</span>'}</td>
+        <td>${e.steps ?? '-'}</td>
+        <td>${e.learning_rate ?? '-'}</td>
+        <td>${e.metrics_count}</td>
+        <td>${(e.evals || []).map((x) => `<span class="tag">${x.pc_success}%</span>`).join('') || '-'}</td>
+        <td><button class="btn btn-sm" style="background:#f0f0f0;" onclick="showExperiment(${e.id})">指标/复现</button></td>
+      </tr>`).join('');
+}
+
+async function showExperiment(id) {
+    const e = await API.get(`/api/training/experiments/${id}`);
+    const points = await API.get(`/api/training/experiments/${id}/metrics?limit=80`);
+    const ms = e.metrics_summary || {};
+    const box = document.getElementById('expDetail');
+    box.style.display = 'block';
+    box.innerHTML = `
+        <div style="font-weight:700;color:#1a3c5e;margin-bottom:8px;">实验 #${e.id} ${e.name}</div>
+        <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:10px;font-size:13px;color:#5a6b85;">
+            <div>policy: <b>${e.policy || '-'}</b></div>
+            <div>steps: <b>${e.steps ?? '-'}</b></div>
+            <div>batch: <b>${e.batch_size ?? '-'}</b></div>
+            <div>lr: <b>${e.learning_rate ?? '-'}</b></div>
+            <div>seed: <b>${e.seed ?? '-'}</b></div>
+            <div>划分: <b>${e.split || '未绑定'}</b>${e.split_salt ? '（salt ' + e.split_salt + '）' : ''}</div>
+            <div>指标点: <b>${ms.points ?? 0}</b>　最优 loss: <b>${ms.best_loss !== null && ms.best_loss !== undefined ? ms.best_loss.toFixed(4) : '-'}</b></div>
+        </div>
+        <div style="margin-bottom:10px;">
+            <div style="font-size:13px;font-weight:600;margin-bottom:4px;">loss 曲线</div>
+            ${sparkline(points, 'loss', 560, 110)}
+        </div>
+        <div style="font-size:12px;color:#8896ab;margin-bottom:8px;">数据集版本：${e.dataset ? `#${e.dataset_id} ${e.dataset.name} v${e.dataset.version} hash=${(e.dataset.content_hash || '').slice(0, 12)}…` : '（未匹配到平台数据集）'}</div>
+        <div style="font-size:12px;background:#1a1a2e;color:#e0e0e0;padding:10px 12px;border-radius:6px;overflow:auto;">${e.reproduce_cmd || '（无配置，无法给出复现命令）'}</div>
+    `;
+}
+
+async function loadEvaluations() {
+    const rows = await API.get('/api/training/evaluations');
+    const body = document.getElementById('evalBody');
+    if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999;padding:18px;">还没有离线评估（扫描并登记实验时会自动带入 eval_info.json）</td></tr>';
+        return;
+    }
+    body.innerHTML = rows.map((e) => {
+        const color = (e.pc_success || 0) > 0 ? '#52c41a' : '#ff4d4f';
+        return `<tr>
+            <td>${e.id}</td>
+            <td style="font-size:13px;">${e.name}</td>
+            <td>${e.num_episodes}</td>
+            <td style="font-weight:700;color:${color};">${e.pc_success}%</td>
+            <td>${e.avg_sum_reward !== null ? e.avg_sum_reward.toFixed(2) : '-'}</td>
+            <td>${e.avg_max_reward !== null ? e.avg_max_reward.toFixed(4) : '-'}</td>
+            <td>${e.videos ?? '-'}</td>
+            <td><button class="btn btn-sm" style="background:#f0f0f0;" onclick="showEvaluation(${e.id})">逐条结果</button></td>
+          </tr>`;
+    }).join('');
+}
+
+async function showEvaluation(id) {
+    const e = await API.get(`/api/training/evaluations/${id}`);
+    const box = document.getElementById('evalDetail');
+    const fails = (e.cases || []).filter((c) => !c.success).length;
+    box.style.display = 'block';
+    box.innerHTML = `
+        <div style="font-weight:700;color:#1a3c5e;margin-bottom:8px;">评估 #${e.id} ${e.name}</div>
+        <div style="font-size:13px;color:#5a6b85;margin-bottom:10px;">
+            ${e.num_episodes} 条 episode，成功 <b>${e.num_episodes - fails}</b>，失败 <b style="color:#ff4d4f;">${fails}</b>，
+            pc_success <b>${e.pc_success}%</b>，用时 ${e.eval_s !== null ? e.eval_s.toFixed(1) : '-'}s
+        </div>
+        <table class="table" style="background:#fff;">
+            <tr><th>episode</th><th>seed</th><th>sum_reward</th><th>max_reward</th><th>结果</th></tr>
+            ${(e.cases || []).map((c) => `<tr>
+                <td>${c.episode_ix}</td><td>${c.seed}</td>
+                <td>${c.sum_reward !== null ? c.sum_reward.toFixed(3) : '-'}</td>
+                <td>${c.max_reward !== null ? c.max_reward.toFixed(4) : '-'}</td>
+                <td>${c.success ? '<span class="status-badge status-done">成功</span>' : '<span class="status-badge status-error">失败</span>'}</td>
+              </tr>`).join('')}
+        </table>`;
+}
+
+async function doCollect() {
+    const r = await API.post('/api/badcases/collect', {});
+    document.getElementById('bcMsg').textContent =
+        `已收集：QC ${r.qc} 条、标注失败 ${r.annotation} 条，未处理合计 ${r.total_open}`;
+    await loadBadCases();
+}
+
+async function loadBadCases() {
+    const data = await API.get('/api/badcases?status=open&limit=200');
+    const byStatus = (data.by_status || []).map((x) => `${x.status} ${x.c}`).join(' ｜ ');
+    const bySource = (data.by_source || []).map((x) => `${x.source} ${x.c}`).join(' ｜ ');
+    document.getElementById('bcSummary').textContent = `状态分布：${byStatus}　　来源分布：${bySource}`;
+    const body = document.getElementById('bcBody');
+    if (!data.cases.length) {
+        body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#52c41a;padding:18px;">没有未处理的 bad case</td></tr>';
+        return;
+    }
+    body.innerHTML = data.cases.map((c) => `<tr>
+        <td>${c.id}</td>
+        <td><span class="tag">${c.source}</span></td>
+        <td style="font-size:12px;">${c.dataset_name || '-'}</td>
+        <td>${c.episode_index !== null && c.episode_index !== undefined ? c.episode_index : 'eval#' + c.eval_episode_ix}</td>
+        <td style="font-size:13px;">${c.reason || '-'}</td>
+        <td style="font-size:11px;color:#8896ab;">${c.detail || '-'}</td>
+        <td><span class="status-badge ${c.status === 'open' ? 'status-error' : 'status-done'}">${c.status}</span></td>
+      </tr>`).join('');
+}
+
+async function doReturn() {
+    const dataset_id = parseInt(document.getElementById('bcDataset').value, 10);
+    if (!dataset_id) return alert('请选择数据集');
+    try {
+        const r = await API.post('/api/badcases/return', { dataset_id });
+        setMsg('bcMsg', `困难集 #${r.hard_set_dataset_id} v${r.hard_set_version}：`
+            + `${r.episodes_count} 条 episode（来源 ${r.sources.join('+')}），${r.frames} 帧 → ${r.zip}`, 'ok');
+        await loadBadCases();
+    } catch (err) {
+        setMsg('bcMsg', '回灌失败：' + err.message, 'error');
+    }
+}
+
+async function loadEnvs() {
+    const box = document.getElementById('envBox');
+    box.textContent = '探测中（会实际启动各环境解释器）…';
+    const e = await API.get('/api/training/envs');
+    const lines = e.envs.map((x) => {
+        const env = x.python.split('\\').slice(-3, -1).join('/');
+        const tags = x.usable_for.length ? x.usable_for.join('+') : '不可用';
+        return `<div>${env}：torch <b>${x.torch || '无'}</b>　lerobot <b>${x.lerobot || '无'}</b>`
+            + `　cuda ${x.cuda}　<span class="tag">${tags}</span></div>`;
+    }).join('');
+    box.innerHTML = lines
+        + `<div style="margin-top:6px;">脚本 <code>${e.lerobot_script}</code> 存在=${e.lerobot_script_exists}`
+        + `　│　builtin ${e.builtin_available ? '可用 ✅' : '不可用'}`
+        + `　│　lerobot ${e.lerobot_available ? '可用 ✅' : '不可用（缺环境，平台不替你装包）'}</div>`;
+}
+
+async function loadTrainingDatasets() {
+    const rows = await API.get('/api/splits/overview');
+    document.getElementById('trDataset').innerHTML = rows.map((d) =>
+        `<option value="${d.dataset_id}" ${d.assigned ? '' : 'disabled'}>${d.name}`
+        + `（${d.total_episodes} 条${d.assigned ? '，已划分 ' + JSON.stringify(d.counts) : '，未划分 —— 不可选'}）</option>`).join('');
+    const missing = rows.filter((d) => !d.assigned).length;
+    document.getElementById('trSplitHint').innerHTML = missing
+        ? `⚠️ 有 <b>${missing}</b> 个数据集未划分（下拉里灰掉、选不了）。训练前必须先划分，`
+          + `避免训练集与评估集重叠：去 <a href="/export">📤 数据集导出</a> 页的「📐 数据划分」卡片，`
+          + `选该数据集 → 点「执行划分」→ 再回本页选它。`
+        : '所有数据集都已划分，可以直接选。';
+}
+
+async function startTraining() {
+    const payload = {
+        dataset_id: parseInt(document.getElementById('trDataset').value, 10),
+        backend: document.getElementById('trBackend').value,
+        split: document.getElementById('trSplit').value,
+        steps: parseInt(document.getElementById('trSteps').value || '200', 10),
+        policy: (document.getElementById('trPolicy') || {}).value || 'act',
+        name: document.getElementById('trName').value.trim() || undefined,
+    };
+    if (!payload.dataset_id) return setMsg('trMsg', '请选一个已划分的数据集', 'error');
+    try {
+        const r = await API.post('/api/training/run', payload);
+        setMsg('trMsg', `已开始：job ${r.job_id}（${r.backend} / ${r.split}）…`);
+        for (let i = 0; i < 7200; i++) {
+            const job = await API.get(`/api/jobs/${r.job_id}`);
+            if (job.status === 'succeeded' || job.status === 'failed') {
+                const res = job.result || {};
+                if (job.status === 'failed') {
+                    setMsg('trMsg', '训练失败：' + String(job.error || '').split('\n')[0].slice(0, 200), 'error');
+                } else {
+                    setMsg('trMsg', `训练完成：模型 #${res.model_id} ${res.name}　`
+                        + `指标 ${JSON.stringify(res.metrics)}`, 'ok');
+                    await Promise.all([loadModels(), renderJobs('jobBody', 10)]);
+                }
+                return;
+            }
+            if (i % 3 === 0) {
+                setMsg('trMsg', `训练中… ${job.progress || 0}% ${job.message || ''}`);
+            }
+            await new Promise((s) => setTimeout(s, 1000));
+        }
+        setMsg('trMsg', '等待超时，可稍后到模型库刷新', 'error');
+    } catch (err) {
+        setMsg('trMsg', '发起失败：' + err.message, 'error');
+    }
+}
+
+
+async function deleteModel(id, btn) {
+    const withFiles = document.getElementById('delFiles') && document.getElementById('delFiles').checked;
+    const msg = `确认删除模型 #${id}？\n\n`
+        + (withFiles ? '⚠ 将同时删除磁盘文件（checkpoint / 权重 / 打包缓存），不可恢复。'
+                     : '只删除数据库记录，磁盘文件保留。');
+    if (!confirm(msg)) return;
+    btn.disabled = true;
+    try {
+        const resp = await fetch(`/api/models/${id}?files=${withFiles}`, { method: 'DELETE' });
+        const data = await resp.json().catch(() => ({}));
+        if (resp.ok) {
+            setMsg('modelMsg', `已删除模型 #${id}`
+                + (data.files_removed && data.files_removed.length
+                   ? `（含 ${data.files_removed.length} 项磁盘文件）` : '（仅记录）'), 'ok');
+        } else {
+            setMsg('modelMsg', `删除失败：${data.detail || resp.status}`, 'error');
+        }
+    } catch (err) {
+        setMsg('modelMsg', '删除请求失败：' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+        loadModels();
+    }
+}
+
+async function loadModels() {
+    const rows = await API.get('/api/models');
+    const body = document.getElementById('modelBody');
+    if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#999;padding:18px;">还没有训练产出的模型</td></tr>';
+        return;
+    }
+    body.innerHTML = rows.map((m) => {
+        const key = Object.entries(m.metrics || {}).slice(0, 3)
+            .map(([k, v]) => `${k}=${typeof v === 'number' ? v.toFixed(5) : v}`).join(' ');
+        return `<tr>
+            <td>${m.id}</td>
+            <td><strong>${m.name}</strong>${m.uses_vision ? '' : ' <span class="tag">无视觉</span>'}</td>
+            <td><span class="tag">${m.backend}</span></td>
+            <td style="font-size:12px;">${m.kind || '-'}</td>
+            <td style="font-size:12px;">${m.dataset || '-'} / ${m.split || '-'}
+                ${m.split_salt ? `<div class="text-muted" style="font-size:11px;">salt ${m.split_salt}</div>` : ''}</td>
+            <td style="font-size:12px;">${key || '-'}</td>
+            <td>${fmtBytes(m.bytes || 0)}</td>
+            <td style="font-size:12px;color:#8896ab;">${m.created_at}</td>
+            <td><a class="btn btn-primary btn-sm" href="/api/models/${m.id}/download" target="_blank" rel="noopener" title="在新标签页开始下载">下载 ${fmtBytes(m.bytes)}</a> <button class="btn btn-sm" style="background:#fdecec;color:#c0392b;" onclick="deleteModel(${m.id}, this)">删除</button></td>
+        </tr>`;
+    }).join('');
+}
+
+loadEnvs();
+loadTrainingDatasets();
+loadModels();
+
+loadExperiments();
+loadEvaluations();
+loadBadCases();
+
+/* ===== 数据划分（从导出页复制，行为一致）===== */
+async function doAssign() {
+    const dataset_id = parseInt(document.getElementById('spDataset').value, 10);
+    if (!dataset_id) return alert('请先接入一个数据集');
+    const ratios = {
+        train: parseFloat(document.getElementById('spTrain').value),
+        val: parseFloat(document.getElementById('spVal').value),
+        test: parseFloat(document.getElementById('spTest').value),
+    };
+    setMsg('spMsg', '划分中…');
+    try {
+        const r = await API.post('/api/splits/assign', {
+            dataset_id, ratios,
+            salt: document.getElementById('spSalt').value.trim() || 'v1',
+            mode: document.getElementById('spMode').value,
+        });
+        setMsg('spMsg', `已划分 ${r.episodes} 条：`
+            + Object.entries(r.counts).map(([k, v]) => `${k} ${v}`).join('、')
+            + (r.warnings && r.warnings.length ? ` ⚠️ ${r.warnings.join('；')}` : '')
+            + (r.meta_written ? `　已写 ${r.meta_written.length} 个元数据文件` : ''), 'ok');
+        await loadSplits();
+    } catch (err) {
+        setMsg('spMsg', '划分失败：' + err.message, 'error');
+    }
+}
+
+async function exportSplit(dataset_id, split) {
+    setMsg('spMsg', `导出 ${split} 划分…`);
+    const job = await runJob('export', { dataset_id, mode: 'split', split },
+        { barId: 'exBar', msgId: 'spMsg' });
+    if (job.status === 'succeeded') {
+        const r = job.result || {};
+        setMsg('spMsg', `${split} 划分导出完成：${r.episodes} 条 / ${r.frames} 帧 → ${r.zip}`, 'ok');
+        await Promise.all([loadArtifacts(), renderJobs('jobBody', 10)]);
+    }
+}
+
+async function loadSplits() {
+    const rows = await API.get('/api/splits/overview');
+    const sel = document.getElementById('spDataset');
+    sel.innerHTML = rows.map((d) =>
+        `<option value="${d.dataset_id}">${d.name}（${d.total_episodes} 条）</option>`).join('');
+    const body = document.getElementById('spBody');
+    body.innerHTML = rows.map((d) => {
+        const c = d.counts || {};
+        const buttons = ['train', 'val', 'test']
+            .filter((s) => (c[s] || 0) > 0)
+            .map((s) => `<button class="btn btn-sm" style="background:#f0f0f0;"
+                onclick="exportSplit(${d.dataset_id}, '${s}')">导出 ${s}(${c[s]})</button>`).join(' ');
+        return `<tr>
+            <td><strong>${d.name}</strong></td>
+            <td>${d.total_episodes}</td>
+            <td>${c.train === undefined ? '-' : c.train}</td>
+            <td>${c.val === undefined ? '-' : c.val}</td>
+            <td>${c.test === undefined ? '-' : c.test}</td>
+            <td style="font-size:12px;color:#8896ab;">${d.assigned ? d.salt + ' / ' + d.mode : '未划分'}</td>
+            <td style="white-space:nowrap;">${buttons || '<span class="text-muted">未划分</span>'}</td>
+        </tr>`;
+    }).join('');
+}
+</script>
+{% endblock %}

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block page_title %}接口管理{% endblock %}
+{% block content %}
+<div class="flex mb-12">
+    <div><span class="text-muted">🔌 统一对外接口，按机器人和场景动态路由到对应模型</span></div>
+    <button class="btn btn-primary">+ 注册接口</button>
+</div>
+<div class="card">
+    <table class="table">
+        <tr><th>ID</th><th>接口路径</th><th>方法</th><th>描述</th><th>关联机器人</th><th>关联模型</th><th>状态</th><th>操作</th></tr>
+        {% for e in endpoints %}
+        <tr>
+            <td>{{ e.id }}</td>
+            <td><code style="background:#f5f5f5;padding:2px 8px;border-radius:4px;font-size:12px;">{{ e.path }}</code></td>
+            <td><span style="background:#e6f7ff;color:#1890ff;padding:2px 10px;border-radius:4px;font-size:12px;">{{ e.method }}</span></td>
+            <td>{{ e.description }}</td>
+            <td>{{ e.robot }}</td>
+            <td><span class="tag">{{ e.model }}</span></td>
+            <td><span class="status-badge {% if e.status == '已启用' %}status-online{% else %}status-offline{% endif %}">{{ e.status }}</span></td>
+            <td>
+                <button class="btn btn-primary btn-sm">测试</button>
+                <button class="btn btn-sm" style="background:#f0f0f0;">编辑</button>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+<div class="card" style="background:#f7f9fc;">
+    <h3>📖 接口调用示例</h3>
+    <pre style="background:#1a1a2e;color:#e0e0e0;padding:16px;border-radius:6px;font-size:13px;overflow:auto;">
+POST /api/v1/detect
+{
+    "robot_id": 1,
+    "scene_id": 1,
+    "image": "base64编码的图像数据"
+}
+返回:
+{
+    "code": 0,
+    "data": {
+        "detections": [{"class": "咖啡杯", "confidence": 0.92, "bbox": [100, 200, 300, 400]}],
+        "inference_time_ms": 28.5
+    }
+}
+    </pre>
+</div>
+{% endblock %}

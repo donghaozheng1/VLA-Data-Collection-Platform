@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>登录 - 机器人视觉中台</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: "Microsoft YaHei", sans-serif; background: #f0f2f5; height: 100vh; display: flex; justify-content: center; align-items: center; }
+        .login-box { background: #fff; padding: 48px 40px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); width: 380px; }
+        .login-box h1 { font-size: 24px; color: #1a3c5e; text-align: center; margin-bottom: 8px; }
+        .login-box .sub { color: #999; text-align: center; font-size: 14px; margin-bottom: 32px; }
+        .login-box label { display: block; font-size: 14px; color: #333; margin-bottom: 4px; }
+        .login-box input[type="text"], .login-box input[type="password"] { width: 100%; padding: 10px 12px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 14px; margin-bottom: 16px; }
+        .login-box input:focus { border-color: #2b7de9; outline: none; }
+        .login-box button { width: 100%; padding: 10px; background: #2b7de9; color: #fff; border: none; border-radius: 6px; font-size: 16px; cursor: pointer; }
+        .login-box button:hover { background: #1a6cd6; }
+        .login-box .error { color: #ff4d4f; font-size: 13px; margin-top: 8px; text-align: center; }
+        .login-box .demo { color: #999; font-size: 12px; text-align: center; margin-top: 16px; }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <h1>HKC机器人视觉中台</h1>
+        <div class="sub">机器人视觉统一管理平台</div>
+        <form method="post" action="/auth/login">
+            <label>用户名</label>
+            <input type="text" name="username" value="" placeholder="请输入用户名">
+            <label>密码</label>
+            <input type="password" name="password" value="" placeholder="请输入密码">
+            <button type="submit">登 录</button>
+            {% if error %}
+            <div class="error">{{ error }}</div>
+            {% endif %}
+            <div class="demo">Demo 账号：admin / admin123（数据不持久化）</div>
+        </form>
+    </div>
+</body>
+</html>

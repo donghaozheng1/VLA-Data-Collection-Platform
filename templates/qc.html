@@ -1,0 +1,1533 @@
+{% extends "base.html" %}
+{% block page_title %}数据质检{% endblock %}
+{% block content %}
+<div class="flex mb-12">
+    <div><span class="text-muted">✅ 结构规则：长度一致性 / 视频帧数一致性 / 帧率 / 特征维度 / NaN / 时间戳单调性与步长 / 动作有效性 / 视频可解码性　🧠 VLM 内容规则：任务是否完成 / 有无失败迹象 / 画面是否可用 / 是否多余人手入镜</span></div>
+    <button class="btn btn-primary" onclick="doQC()">▶ 执行质检</button>
+</div>
+
+<div class="card">
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">数据集</label>
+            <select id="dsSel" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;min-width:220px;"></select>
+        </div>
+        <div style="font-size:13px;color:#666;">结构质检逐条读 parquet 与视频头部（206 条约 3 秒）；开了 VLM 后每条还要多花几秒</div>
+    </div>
+    <div id="qcBarWrap" style="display:none;background:#e9edf4;border-radius:6px;height:8px;margin-top:12px;"><div id="qcBar" style="background:#2b7de9;height:8px;border-radius:6px;width:2%;"></div></div>
+    <div id="qcMsg" style="font-size:13px;color:#666;margin-top:8px;"></div>
+</div>
+
+<!-- ---------------------------------------------------------------- 服务器质检 -->
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">🖥 服务器质检（lerobot-doctor）</h3>
+        <div style="display:flex;gap:8px;align-items:center;">
+            <span id="remoteHealth" style="font-size:13px;color:#999;">检测中…</span>
+            <button class="btn btn-sm" style="background:#f0f0f0;" onclick="probeRemote()">重新探活</button>
+            <button class="btn btn-primary btn-sm" onclick="doRemoteQC()">▶ 执行服务器质检</button>
+        </div>
+    </div>
+    <div style="font-size:13px;color:#5a6b85;margin-bottom:12px;line-height:1.7;">
+        重活放服务器：<code>lerobot-doctor</code> 直接读服务器上的 LeRobot 目录跑 11 项检查，
+        结论回传到本页。本机只负责显示与发起，<b>不参与计算、不产生中间数据</b>；
+        服务器上只在 1.8T 盘写入。
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;">
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">目标数据集</label>
+            <select id="remoteDs" onchange="remotePickDataset(this.value)"
+                    style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;min-width:320px;"></select>
+        </div>
+        <button class="btn btn-sm" style="background:#f0f0f0;" onclick="resolveRemotePath()">查看服务器路径</button>
+        <button class="btn btn-sm" style="background:#f0f0f0;" onclick="editServerPath()">指定服务器路径</button>
+        <button class="btn btn-sm" style="background:#fff7e6;border:1px solid #ffd591;color:#d46b08;"
+                onclick="doRemoteQC(true)">⬆ 同步到服务器并质检</button>
+        <label style="font-size:13px;color:#666;">
+            <input type="checkbox" id="remoteForce"> 忽略缓存重跑
+        </label>
+    </div>
+    <div id="remotePath" style="font-size:12px;color:#5a6b85;margin-top:10px;font-family:Consolas,monospace;word-break:break-all;line-height:1.6;"></div>
+    <div id="remoteBarWrap" style="display:none;background:#e9edf4;border-radius:6px;height:8px;margin-top:12px;"><div id="remoteBar" style="background:#13a8a8;height:8px;border-radius:6px;width:2%;"></div></div>
+    <div id="remoteMsg" style="font-size:13px;color:#666;margin-top:8px;"></div>
+
+    <details style="margin-top:12px;">
+        <summary style="cursor:pointer;font-size:14px;color:#2b7de9;">⚙️ 服务器与阈值配置</summary>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-top:12px;">
+            <div>
+                <label style="font-size:13px;display:block;margin-bottom:4px;">服务器 host</label>
+                <input id="rcHost" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:150px;">
+            </div>
+            <div>
+                <label style="font-size:13px;display:block;margin-bottom:4px;">用户</label>
+                <input id="rcUser" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:90px;">
+            </div>
+            <div>
+                <label style="font-size:13px;display:block;margin-bottom:4px;">qcenv 路径</label>
+                <input id="rcBase" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:270px;">
+            </div>
+            <div>
+                <label style="font-size:13px;display:block;margin-bottom:4px;">超时(秒)</label>
+                <input id="rcTimeout" type="number" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:90px;">
+            </div>
+            <div>
+                <label style="font-size:13px;display:block;margin-bottom:4px;">最多检查条数(0=全部)</label>
+                <input id="rcMaxEp" type="number" min="0" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:120px;">
+            </div>
+            <div>
+                <label style="font-size:13px;display:block;margin-bottom:4px;">只跑这些检查(逗号分隔，空=全部)</label>
+                <input id="rcChecks" placeholder="metadata,temporal,actions" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:230px;">
+            </div>
+        </div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:10px;font-size:13px;color:#666;">
+            <label><input type="checkbox" id="rcCache"> 用缓存</label>
+            <label><input type="checkbox" id="rcKeepPass"> 输出 PASS 明细</label>
+            <label><input type="checkbox" id="rcFailError"> FAIL 视为 error（会触发打回重采）</label>
+            <button class="btn btn-primary btn-sm" onclick="saveRemoteConfig()">保存配置</button>
+            <span id="rcSaveMsg" style="font-size:12px;color:#8896ab;"></span>
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-top:12px;padding-top:12px;border-top:1px dashed #e8e8e8;">
+            <label style="font-size:13px;color:#666;">
+                <input type="checkbox" id="rcUploadEnabled"> 允许上传本机数据集
+            </label>
+            <div>
+                <label style="font-size:13px;display:block;margin-bottom:4px;">上传落点（自动并入白名单）</label>
+                <input id="rcUploadRoot" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:330px;">
+            </div>
+            <div>
+                <label style="font-size:13px;display:block;margin-bottom:4px;">单次上传上限(GB)</label>
+                <input id="rcUploadMaxGB" type="number" min="0" step="0.5" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:120px;">
+            </div>
+        </div>
+        <div style="margin-top:12px;padding-top:12px;border-top:1px dashed #e8e8e8;">
+            <div style="font-size:13px;font-weight:600;color:#5a6b85;margin-bottom:6px;">
+                第三方检查（lerobot-doctor）的阈值
+            </div>
+            <div style="font-size:12px;color:#8896ab;line-height:1.8;margin-bottom:8px;">
+                这 11 项的判据是 <b>lerobot-doctor 源码里的硬编码值</b>，它自己没有配置入口。
+                下面让平台用<b>你的阈值</b>重新判定它的测量值（测量值从它的结论文本里解析，
+                解析覆盖率会显示在质检报告里）。<b>默认值刻意等于它原版的值</b> —— 想改才改。
+            </div>
+            <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;">
+                <label style="font-size:13px;color:#666;">
+                    <input type="checkbox" id="rcRejudge"> 启用平台阈值重判
+                </label>
+                <div>
+                    <label style="font-size:13px;display:block;margin-bottom:4px;">
+                        冻结：最长连续相同段占比 &gt;
+                    </label>
+                    <input id="rcFrozen" type="number" min="0" max="1" step="0.05"
+                           style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:110px;">
+                </div>
+                <div>
+                    <label style="font-size:13px;display:block;margin-bottom:4px;">
+                        贴极值：落在本 episode 极值的比例 &gt;
+                    </label>
+                    <input id="rcClip" type="number" min="0" max="1" step="0.05"
+                           style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:110px;">
+                </div>
+                <div>
+                    <label style="font-size:13px;display:block;margin-bottom:4px;">
+                        突变：σ 倍数 &gt;
+                    </label>
+                    <input id="rcJump" type="number" min="1" step="1"
+                           style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:100px;">
+                </div>
+                <label style="font-size:13px;color:#666;">
+                    <input type="checkbox" id="rcDisagree"> 显示分歧提示（doctor 报了我们不算）
+                </label>
+                <button class="btn btn-sm" style="background:#fff7e6;border:1px solid #ffd591;color:#d46b08;"
+                        onclick="applyTeleopPreset()">按遥操数据放宽</button>
+                <button class="btn btn-sm" style="background:#f0f0f0;" onclick="applyDoctorDefaults()">恢复 doctor 原值</button>
+                <span id="rcThrMsg" style="font-size:12px;color:#8896ab;"></span>
+            </div>
+            <div id="rcThrHint" style="font-size:12px;color:#8896ab;margin-top:8px;line-height:1.8;"></div>
+        </div>
+        <div style="margin-top:12px;">
+            <label style="font-size:13px;display:block;margin-bottom:4px;">
+                允许的服务器数据集根目录（每行一个 —— 白名单，防止读到别的目录）
+            </label>
+            <textarea id="rcRoots" rows="4" style="width:100%;padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;font-family:Consolas,monospace;font-size:12px;box-sizing:border-box;"></textarea>
+        </div>
+        <div style="font-size:12px;color:#8896ab;margin-top:8px;line-height:1.7;">
+            单个数据集的服务器路径可以在上方点「指定服务器路径」单独设；留空则按
+            「目录名 == 数据集名」在 roots 里自动匹配。<br>
+            检查项共 11 个：元数据 / 时序 / 动作质量 / 视频完整性 / 统计分布 / episode 健康度 /
+            特征一致性 / 训练就绪性 / 异常检测 / 可移植性 / 逐 episode 汇总。
+        </div>
+    </details>
+</div>
+
+<!-- ---------------------------------------------------------------- VLM 内容质检 -->
+<div class="card">
+    <div id="vlmDupNote" style="font-size:12px;color:#faad14;margin-bottom:10px;display:none;"></div>
+    <div style="font-size:12px;color:#5a6b85;background:#fafafa;border-radius:5px;padding:8px 12px;margin-bottom:12px;line-height:1.85;">
+        <b>「抽帧数」是什么</b>：把一条 episode 的<b>每一路相机</b>各抽 N 帧（首帧 + 末帧 + 均匀取样），
+        按「<b>列=时间、行=相机</b>」拼成一张网格图交给模型看。
+        所以抽 6 帧 × 2 路相机 = 模型一次看到 12 格画面。N 越大越细但更慢、更费上下文。<br>
+        <b>注意</b>：关键事件常只在末帧出现（实测 zhiyan 的人手介入就只在最后一帧），
+        末帧一定会被抽到；但如果改成纯均匀取样就可能漏掉结尾。
+    </div>
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">🧠 VLM 内容质检</h3>
+        <div style="display:flex;gap:8px;align-items:center;">
+            <span id="vlmHealth" style="font-size:13px;color:#999;">检测中…</span>
+            <button class="btn btn-sm" style="background:#f0f0f0;" onclick="checkVlm()">重新探活</button>
+            <button class="btn btn-sm" style="background:#f0f0f0;" onclick="loadVlmResults()">刷新结果</button>
+            <button class="btn btn-primary btn-sm" onclick="doVlmQC()">▶ 执行 VLM 质检</button>
+        </div>
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">目标数据集</label>
+            <select id="vlmDs" onchange="vlmPickDataset(this.value)"
+                    style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;min-width:320px;"></select>
+        </div>
+        <span style="font-size:12px;color:#8896ab;">
+            下拉框与页面顶部那个、以及服务器质检里的那个三方联动
+        </span>
+    </div>
+    <div style="font-size:13px;color:#5a6b85;margin-bottom:12px;line-height:1.7;">
+        结构规则只能查「文件对不对」；<b>内容对不对</b>（遥操人员没放成功、重采后忘了删、画面被挡、多了一只手）
+        要靠 VLM 看画面判断。VLM 的结论以 <b>warning</b> 写进下面同一张问题清单，
+        <b>只标记待人工复核，不会直接把数据判成「打回重采」</b> —— 是否删除由人决定。
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;">
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">质检模式</label>
+            <select id="vlmMode" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;">
+                <option value="both">both · 判别式 + 描述式（推荐）</option>
+                <option value="checklist">checklist · 只问预设问题（快、只能查预设的）</option>
+                <option value="describe">describe · 先描述再判定（能发现没预设的问题）</option>
+            </select>
+        </div>
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">每条相机抽帧数</label>
+            <input id="vlmFrames" type="number" min="2" max="12" value="6"
+                   style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:90px;">
+        </div>
+        <label style="font-size:13px;color:#666;">
+            <input type="checkbox" id="vlmForce"> 忽略缓存重新问一遍
+        </label>
+        <div style="font-size:12px;color:#8896ab;">已跑过的相同内容默认走缓存，不重复花算力</div>
+    </div>
+    <div id="vlmBarWrap" style="display:none;background:#e9edf4;border-radius:6px;height:8px;margin-top:12px;"><div id="vlmBar" style="background:#722ed1;height:8px;border-radius:6px;width:2%;"></div></div>
+    <div id="vlmMsg" style="font-size:13px;color:#666;margin-top:8px;"></div>
+</div>
+
+<!-- ---------------------------------------------------------------- VLM 配置与问题清单 -->
+<div class="card">
+    <details id="cfgDetails">
+        <summary style="cursor:pointer;font-size:15px;font-weight:600;color:#2b7de9;">
+            ⚙️ VLM 配置与问题清单（点开可改后端地址、模型、以及质检问什么）
+        </summary>
+        <div style="font-size:13px;color:#8896ab;margin:10px 0;">
+            配置文件：<span id="cfgPath" style="color:#5a6b85;">-</span>　
+            改完点「保存配置」即生效，不用重启平台。
+        </div>
+
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;">
+            <div style="flex:1 1 260px;">
+                <label style="font-size:13px;display:block;margin-bottom:4px;">后端地址 base_url</label>
+                <input id="cfgBase" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:100%;">
+            </div>
+            <div style="flex:0 1 170px;">
+                <label style="font-size:13px;display:block;margin-bottom:4px;">模型名 model</label>
+                <input id="cfgModel" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:100%;">
+            </div>
+            <div style="flex:0 1 140px;">
+                <label style="font-size:13px;display:block;margin-bottom:4px;">API Key</label>
+                <input id="cfgKey" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:100%;">
+            </div>
+            <div style="flex:0 1 120px;">
+                <label style="font-size:13px;display:block;margin-bottom:4px;">超时(秒)</label>
+                <input id="cfgTimeout" type="number" min="10" max="600" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:100%;">
+            </div>
+            <div style="flex:0 1 110px;">
+                <label style="font-size:13px;display:block;margin-bottom:4px;">默认抽帧数</label>
+                <input id="cfgFrames" type="number" min="2" max="12" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:100%;">
+            </div>
+            <div style="flex:0 1 150px;">
+                <label style="font-size:13px;display:block;margin-bottom:4px;">默认模式</label>
+                <select id="cfgMode" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;width:100%;">
+                    <option value="both">both</option>
+                    <option value="checklist">checklist</option>
+                    <option value="describe">describe</option>
+                </select>
+            </div>
+            <label style="font-size:13px;color:#666;">
+                <input type="checkbox" id="cfgCache"> 用缓存
+            </label>
+            <button class="btn btn-primary btn-sm" onclick="saveVlmConfig()">保存配置</button>
+            <button class="btn btn-sm" style="background:#f0f0f0;" onclick="checkVlm()">探活</button>
+        </div>
+
+        <div class="flex mb-12" style="margin-bottom:6px;">
+            <h4 style="margin:0;font-size:14px;">质检问题清单（checklist 模式问这些）</h4>
+            <div>
+                <button class="btn btn-sm" style="background:#f0f0f0;" onclick="addCkRow()">+ 新增一条</button>
+                <button class="btn btn-sm" style="background:#f0f0f0;" onclick="resetChecklist()">恢复默认清单</button>
+            </div>
+        </div>
+        <div style="font-size:12px;color:#8896ab;margin-bottom:8px;line-height:1.6;">
+            约定：每条问题的<b>正向问法</b>都以 <code>yes</code> 为「合规」；<b>反向问法</b>以 <code>no</code> 为「合规」。
+            两者必须互相印证，矛盾时判为「待人工确认」—— 这是抵消 VLM 爱答 yes 的手段。
+            级别 <code>warning</code> 会进问题清单待复核，<code>info</code> 只做提示。
+        </div>
+        <table class="table">
+            <tr>
+                <th style="width:15%;">规则名</th>
+                <th style="width:28%;">问题（正向，yes=合规）</th>
+                <th style="width:28%;">反向问法（no=合规）</th>
+                <th style="width:8%;">合规答案</th>
+                <th style="width:9%;">级别</th>
+                <th style="width:6%;"></th>
+            </tr>
+            <tbody id="ckBody"></tbody>
+        </table>
+    </details>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">🧠 VLM 逐条结论</h3>
+        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
+            <label style="font-size:13px;color:#666;">
+                批次
+                <select id="vlmBatch" onchange="loadVlmResults()"
+                        style="padding:4px 8px;border:1px solid #d9d9d9;border-radius:4px;max-width:460px;"></select>
+            </label>
+            <label style="font-size:13px;color:#666;">
+                <input type="checkbox" id="vlmOnlyFlagged" onchange="loadVlmResults()"> 只看可疑（含 warning 的）
+            </label>
+        </div>
+    </div>
+    <div id="vlmBatchInfo" style="font-size:12px;color:#5a6b85;background:#f7f9fc;border-radius:5px;padding:8px 12px;margin-bottom:10px;line-height:1.85;"></div>
+    <div style="font-size:12px;color:#5a6b85;background:#fafafa;border-radius:5px;padding:8px 12px;margin-bottom:10px;line-height:1.9;">
+        <b>怎么读这张表</b>：每条问题都问两遍 ——「正问」和意思相反的「反问」。
+        <span style="color:#52c41a;">✔</span> 正反一致且合规 ・
+        <span style="color:#fa541c;">✘</span> 正反一致但<b>不合规</b>（数据可能有问题）・
+        <span style="color:#faad14;">?</span> <b>正反不一致</b> —— 同一个问题换个说法就问出了不同答案，
+        说明<b>模型这次没判断准</b>，系统只记「待人工确认」，<b>不当成结论</b>。<br>
+        每行下方灰色小字是<b>模型给的理由</b>（它凭什么这么判）。理由是自然语言，仅供参考，不是形式化判据。<br>
+        <b>批次</b> = 一次质检产出的整组结果（问题清单 / 模型 / 抽帧参数一变就是新批次）。
+        默认只显示最新一批，避免不同批次的结果混在一起。
+    </div>
+    <table class="table">
+        <tr><th>Episode</th><th>结论</th><th>逐问回答</th><th>场景描述 / 建议指令</th><th>耗时</th><th>时间</th></tr>
+        <tbody id="vlmBody"><tr><td colspan="6" style="text-align:center;color:#999;padding:20px;">该数据集还没有 VLM 质检结果</td></tr></tbody>
+    </table>
+    <div style="font-size:12px;color:#8896ab;margin-top:10px;">
+        描述式产出的「建议指令」可以直接当 VLA 的语言标注用：点 VLM 面板上的
+        <b>回填语言指令</b> 会把它写进标注表（已有人工指令的不会被覆盖）。
+    </div>
+</div>
+
+<div class="card">
+    <h3>📊 质检记录</h3>
+    <div style="font-size:12px;color:#8896ab;margin-bottom:8px;">
+        「来源」区分本机与服务器；「维度」是各质检维度的命中数汇总。
+    </div>
+    <table class="table">
+        <tr><th>run</th><th>数据集</th><th>来源</th><th>总数</th><th>通过</th><th>打回</th><th>维度命中</th><th>结论</th><th>VLM</th><th>报告</th><th>时间</th><th>操作</th></tr>
+        <tbody id="runBody"><tr><td colspan="12" style="text-align:center;color:#999;padding:20px;">还没有质检记录</td></tr></tbody>
+    </table>
+</div>
+
+<div class="card" id="reportCard" style="display:none;">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;" id="reportTitle">📋 质检报告</h3>
+        <div style="display:flex;gap:8px;align-items:center;">
+            <a id="reportDl" class="btn btn-sm" style="background:#f0f0f0;text-decoration:none;color:#333;" href="#">下载报告 JSON</a>
+            <a id="reportDlRaw" class="btn btn-sm" style="background:#f0f0f0;text-decoration:none;color:#333;display:none;" href="#">下载原始结果</a>
+            <button class="btn btn-sm" style="background:#f0f0f0;" onclick="document.getElementById('reportCard').style.display='none'">关闭</button>
+        </div>
+    </div>
+    <div id="reportHead"></div>
+    <div id="reportKpi" style="display:flex;gap:14px;flex-wrap:wrap;margin:14px 0;"></div>
+    <div id="reportCoverage" style="font-size:12px;color:#5a6b85;margin-bottom:16px;line-height:1.9;"></div>
+    <div style="font-size:13px;font-weight:600;color:#5a6b85;margin-bottom:8px;">维度总览（点卡片看该维度明细）</div>
+    <div id="reportDims" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:18px;"></div>
+    <div id="reportChecks"></div>
+</div>
+
+<div class="card" id="detailCard" style="display:none;">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;" id="detailTitle">问题明细</h3>
+        <button class="btn btn-sm" style="background:#f0f0f0;" onclick="document.getElementById('detailCard').style.display='none'">关闭</button>
+    </div>
+    <div id="detailSummary" style="font-size:13px;color:#5a6b85;margin-bottom:12px;line-height:1.7;"></div>
+    <div id="covBox" style="font-size:12px;color:#5a6b85;margin-bottom:12px;line-height:1.8;"></div>
+    <div class="flex mb-12" style="margin-bottom:8px;gap:16px;align-items:center;">
+        <label style="font-size:13px;color:#666;">
+            <input type="checkbox" id="onlyVlm" onchange="filterFindings()"> 只看 VLM 判定
+        </label>
+        <label style="font-size:13px;color:#666;">
+            <input type="checkbox" id="onlyServer" onchange="filterFindings()"> 只看服务器结论
+        </label>
+        <label style="font-size:13px;color:#666;">
+            维度：
+            <select id="catFilter" onchange="filterFindings()" style="padding:4px 8px;border:1px solid #d9d9d9;border-radius:4px;">
+                <option value="">全部</option>
+            </select>
+        </label>
+        <label style="font-size:13px;color:#666;">
+            级别：
+            <select id="sevFilter" onchange="filterFindings()" style="padding:4px 8px;border:1px solid #d9d9d9;border-radius:4px;">
+                <option value="">全部</option>
+                <option value="error">error</option>
+                <option value="warning">warning</option>
+                <option value="info">info</option>
+            </select>
+        </label>
+    </div>
+    <table class="table">
+        <tr><th>Episode</th><th>维度</th><th>级别</th><th>规则</th><th>说明</th><th>实测</th><th>期望</th></tr>
+        <tbody id="findBody"></tbody>
+    </table>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">🧹 挑出要排除的 episode</h3>
+        <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn btn-sm" style="background:#f0f0f0;" onclick="loadEpisodeProblems()">刷新问题汇总</button>
+            <button class="btn btn-sm" style="background:#f0f0f0;" onclick="curateSelectSuggest()">按建议勾选</button>
+            <button class="btn btn-sm" style="background:#f0f0f0;" onclick="curateSelectNone()">全部保留</button>
+            <button class="btn btn-sm" style="background:#fff1f0;border:1px solid #ffccc7;color:#cf1322;"
+                    onclick="doCurate()">生成清理后的数据集</button>
+        </div>
+    </div>
+    <div style="font-size:12px;color:#5a6b85;background:#f6ffed;border:1px solid #b7eb8f;border-radius:5px;padding:8px 12px;margin-bottom:10px;line-height:1.9;">
+        <b>原数据集不会被修改，也不会删掉任何文件。</b>
+        这里勾选的是要<b>排除</b>的 episode，提交后平台把它<b>另存为一个新数据集</b>
+        （只含保留的 episode），血缘记录在案，可随时对比与回退。<br>
+        默认<b>全部保留</b>，只有你明确勾上「排除」的才会被剔除。
+        <span style="color:#cf1322;">本平台不做"原地删除"</span> —— 数据质量分数不足以成为销毁数据的依据，
+        必须保留可复核的副本。
+    </div>
+    <div id="curateSummary" style="font-size:13px;color:#5a6b85;margin-bottom:8px;"></div>
+    <div id="curateLevel" style="font-size:12px;color:#8896ab;margin-bottom:10px;line-height:1.8;"></div>
+    <div id="curateBarWrap" style="display:none;background:#e9edf4;border-radius:6px;height:8px;margin-bottom:10px;">
+        <div id="curateBar" style="background:#13a8a8;height:8px;border-radius:6px;width:2%;"></div>
+    </div>
+    <div id="curateMsg" style="font-size:13px;color:#666;margin-bottom:10px;"></div>
+    <table class="table">
+        <tr><th style="width:64px;">排除</th><th>Episode</th><th>建议</th><th>问题数</th><th>来源</th><th>维度</th><th>主要问题</th></tr>
+        <tbody id="curateBody">
+            <tr><td colspan="7" style="text-align:center;color:#999;padding:20px;">点「刷新问题汇总」加载</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<script>
+let DS = [];
+let CURRENT_RUN = null;
+
+async function loadDatasets() {
+    DS = await API.get('/api/datasets');
+    const opts = DS.map((d) =>
+        `<option value="${d.id}">${d.name}（${d.total_episodes} 条）</option>`).join('');
+    // 三处数据集下拉框都填上相同选项，且保持当前选中一致
+    const top = document.getElementById('dsSel');
+    const keep = top.value;
+    top.innerHTML = opts;
+    ['remoteDs', 'vlmDs'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = opts;
+    });
+    if (keep) {
+        top.value = keep;
+        ['remoteDs', 'vlmDs'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.value = keep;
+        });
+    }
+    loadRuns();
+    checkVlm();
+    loadVlmResults();
+}
+
+// VLM 面板里的数据集下拉与页面顶部那个双向联动
+function vlmPickDataset(value) {
+    const top = document.getElementById('dsSel');
+    if (!top || !value) return;
+    top.value = value;
+    loadVlmResults();
+    checkVlm();
+    updateRemoteDsName();
+}
+
+function currentDatasetId() {
+    return parseInt(document.getElementById('dsSel').value, 10);
+}
+
+// ------------------------------------------------------------------ 结构化质检
+
+async function doQC() {
+    const datasetId = currentDatasetId();
+    if (!datasetId) return alert('请先接入一个数据集');
+    const job = await runJob('qc', { dataset_id: datasetId },
+        { barId: 'qcBar', msgId: 'qcMsg' });
+    if (job.status === 'succeeded') {
+        await loadRuns();
+        if (job.result && job.result.run_id) showRun(job.result.run_id);
+    }
+}
+
+// ------------------------------------------------------------------ 界面化质检报告
+
+let REPORT = null;
+
+function statusBadgeOf(status) {
+    const map = { FAIL: ['status-error', 'FAIL'], WARN: ['status-paused', 'WARN'],
+                  PASS: ['status-done', 'PASS'], error: ['status-error', 'error'],
+                  warning: ['status-paused', 'warning'], info: ['status-running', 'info'] };
+    const [cls, text] = map[status] || ['status-offline', status || '-'];
+    return `<span class="status-badge ${cls}">${text}</span>`;
+}
+
+async function showReport(runId) {
+    const card = document.getElementById('reportCard');
+    card.style.display = 'block';
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('reportTitle').textContent = `📋 质检报告 · run ${runId}`;
+    document.getElementById('reportHead').innerHTML = '<span style="color:#999;">加载中…</span>';
+    document.getElementById('reportKpi').innerHTML = '';
+    document.getElementById('reportDims').innerHTML = '';
+    document.getElementById('reportChecks').innerHTML = '';
+    document.getElementById('reportCoverage').textContent = '';
+
+    let data;
+    try {
+        data = await API.get(`/api/qc/report/${runId}`);
+    } catch (err) {
+        document.getElementById('reportHead').innerHTML =
+            `<span style="color:#ff4d4f;">加载报告失败：${esc(err.message)}</span>`;
+        return;
+    }
+    REPORT = data;
+    const s = data.summary || {};
+    const remote = s.remote || {};
+    const ds = data.dataset || {};
+
+    // ---- 下载按钮（按 run_id 下载，不暴露任意路径）----
+    const dl = document.getElementById('reportDl');
+    const rawBtn = document.getElementById('reportDlRaw');
+    dl.href = `/api/qc/report/${runId}/download`;
+    rawBtn.href = `/api/qc/report/${runId}/download-raw`;
+    rawBtn.style.display = (data.raw_path || data.doctor) ? '' : 'none';
+
+    // ---- 头部 ----
+    const head = data.head || {};
+    const isServer = !!remote.host;
+    const conclusion = data.run.failed
+        ? '<span class="status-badge status-error">打回重采</span>'
+        : '<span class="status-badge status-done">通过</span>';
+    // 服务器运行的「通过数」是检查项数，不是 episode 数 —— 分开写，避免误读
+    const scale = isServer
+        ? `${head.episodes || remote.total_episodes || '-'} 条 episode`
+        : `${head.passed_episodes || 0} 通过 / ${head.failed_episodes || 0} 打回`;
+    document.getElementById('reportHead').innerHTML = `
+        <div style="font-size:13px;color:#5a6b85;line-height:2;">
+            <b style="font-size:16px;color:#262626;">${esc(ds.name || ('数据集 #' + data.run.dataset_id))}</b>
+            ${conclusion}
+            <span class="tag" style="background:${isServer ? '#e6fffb' : '#f6ffed'};color:${isServer ? '#08979c' : '#389e0d'};">
+                ${isServer ? '服务器质检' : '本机质检'}
+            </span>
+            ${ds.codebase_version ? `<span class="tag">${esc(ds.codebase_version)}</span>` : ''}
+            ${esc(scale)}
+            ${ds.total_frames ? ` / ${ds.total_frames} 帧` : ''}
+            ${ds.fps ? `@ ${ds.fps}fps` : ''}
+            ｜${esc(data.run.created_at || '')}
+            ${isServer ? `｜服务器 ${esc(remote.host)}｜<code style="font-size:11px;">${esc(remote.path || '')}</code>` : ''}
+            ${isServer && remote.seconds != null ? `｜耗时 ${remote.seconds}s${remote.cached ? '（缓存）' : ''}` : ''}
+        </div>`;
+
+    // ---- KPI ----
+    const kpi = (value, label, color) => `
+        <div style="background:#fafafa;border-radius:8px;padding:10px 16px;min-width:110px;">
+            <div style="font-size:22px;font-weight:700;color:${color || '#262626'};line-height:1.2;">${value}</div>
+            <div style="font-size:12px;color:#8896ab;">${label}</div>
+        </div>`;
+    const kpis = [];
+    if (isServer && remote.counts) {
+        kpis.push(kpi(remote.counts.PASS, 'PASS 通过', '#52c41a'));
+        kpis.push(kpi(remote.counts.WARN, 'WARN 警告', '#faad14'));
+        kpis.push(kpi(remote.counts.FAIL, 'FAIL 失败', remote.counts.FAIL ? '#ff4d4f' : '#bfbfbf'));
+        kpis.push(kpi(remote.total_episodes || 0, 'episode 数'));
+        kpis.push(kpi(`${remote.total_frames || 0}`, '总帧数'));
+        kpis.push(kpi(`${remote.fps || '-'}`, 'fps'));
+        if (remote.upload) {
+            kpis.push(kpi(remote.upload.skipped ? '跳过' : '已传', '上传到服务器'));
+        }
+    } else {
+        const fc = s.findings_count || {};
+        kpis.push(kpi(data.run.passed ?? 0, '通过'));
+        kpis.push(kpi(data.run.failed ?? 0, '打回', (data.run.failed ? '#ff4d4f' : '#bfbfbf')));
+        kpis.push(kpi(fc.error || 0, 'error', fc.error ? '#ff4d4f' : '#bfbfbf'));
+        kpis.push(kpi(fc.warning || 0, 'warning', fc.warning ? '#faad14' : '#bfbfbf'));
+        kpis.push(kpi(fc.info || 0, 'info', '#8c8c8c'));
+    }
+    kpis.push(kpi((s.categories || []).length, '命中的维度'));
+    document.getElementById('reportKpi').innerHTML = kpis.join('');
+
+    // ---- 覆盖率 ----
+    const cov = s.coverage || {};
+    const covCats = cov.categories || {};
+    const covKeys = Object.keys(covCats);
+    document.getElementById('reportCoverage').innerHTML = covKeys.length
+        ? `📊 <b>覆盖率分母</b>：本报告的检查跑在 <b>${cov.episodes || data.run.total || 0}</b> 条 episode 上 —— `
+          + covKeys.map((k) => `${esc(k)} <b>${Math.round(covCats[k] * 100)}%</b>`).join('　')
+        : '📊 覆盖率：本次运行未记录（旧版本产生的报告）';
+
+    // ---- 维度卡片 ----
+    const dims = data.dims || [];
+    document.getElementById('reportDims').innerHTML = dims.map((d, i) => {
+        const colors = { FAIL: '#fff1f0', WARN: '#fffbe6', PASS: '#f6ffed' };
+        const borders = { FAIL: '#ffccc7', WARN: '#ffe58f', PASS: '#b7eb8f' };
+        const n = Array.isArray(d.messages) ? d.messages : (d.messages || 0);
+        const count = Array.isArray(n) ? n.length : n;
+        return `<div style="background:${colors[d.status] || '#fafafa'};border:1px solid ${borders[d.status] || '#e8e8e8'};
+                        border-radius:8px;padding:10px 12px;cursor:pointer;"
+                     onclick="focusDim(${i})">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:13px;font-weight:600;color:#262626;">${esc(d.label || d.key)}</span>
+                ${statusBadgeOf(d.status)}
+            </div>
+            <div style="font-size:11px;color:#8896ab;margin-top:4px;">
+                ${count ? `${count} 条明细` : '无问题'}${d.key ? `　<code style="font-size:10px;">${esc(d.key)}</code>` : ''}
+            </div>
+        </div>`;
+    }).join('');
+
+    // ---- 逐维度明细 ----
+    renderReportChecks('');
+}
+
+function focusDim(index) {
+    const d = (REPORT.dims || [])[index];
+    if (!d) return;
+    renderReportChecks(d.key);
+    document.getElementById('reportChecks').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderReportChecks(filterKey) {
+    const data = REPORT || {};
+    const s = data.summary || {};
+    const doctor = data.doctor;
+    const byCat = data.by_category || {};
+    const remote = s.remote || {};
+    const labelOf = {};
+    (data.dims || []).forEach((d) => { labelOf[d.key] = d.label; });
+    ((s.categories || [])).forEach((c) => { labelOf[c.category] = c.label; });
+
+    const block = (title, status, count, rows, open) => `
+        <details ${open ? 'open' : ''} style="margin-bottom:10px;border:1px solid #f0f0f0;border-radius:8px;">
+            <summary style="cursor:pointer;padding:10px 12px;display:flex;justify-content:space-between;
+                            align-items:center;background:#fafafa;border-radius:8px;">
+                <span style="font-size:14px;font-weight:600;color:#262626;">${esc(title)}</span>
+                <span style="font-size:12px;color:#8896ab;">${statusBadgeOf(status)} ${count ? `${count} 条` : '无问题'}</span>
+            </summary>
+            <div style="padding:8px 12px 12px;">
+                ${rows || '<div style="color:#52c41a;font-size:13px;padding:6px 0;">✔ 该项全部通过</div>'}
+            </div>
+        </details>`;
+
+    const rowHtml = (sev, ep, text) => {
+        const colors = { FAIL: '#fff1f0', WARN: '#fffbe6', PASS: '#f6ffed',
+                         error: '#fff1f0', warning: '#fffbe6', info: '#f0f5ff' };
+        return `<div style="background:${colors[sev] || '#fafafa'};border-radius:4px;padding:6px 10px;
+                             margin-bottom:4px;font-size:12.5px;line-height:1.7;">
+            ${sev ? statusBadgeOf(sev) + ' ' : ''}${ep || ''}${esc(text)}
+        </div>`;
+    };
+
+    let html = '';
+    if (doctor && Array.isArray(doctor.checks)) {
+        // 服务器：直接用 lerobot-doctor 的完整输出（含 PASS 明细），报告才完整
+        const checks = filterKey
+            ? doctor.checks.filter((c) => c.name === filterKey
+                || (s.remote && (s.remote.checks || []).some((r) =>
+                    r.name === c.name && r.label === filterKey)))
+            : doctor.checks;
+        html = checks.map((c) => {
+            const msgs = c.messages || [];
+            const rows = msgs.map((m) => {
+                const epMatch = /[Ee]pisode\s+(\d+)/.exec(m.message || '');
+                return rowHtml(m.severity, epMatch ? `ep${epMatch[1]}` : '', m.message || '');
+            }).join('');
+            const isOpen = filterKey ? true : c.severity !== 'PASS';
+            return block(c.name, c.severity, msgs.filter((m) => m.severity !== 'PASS').length, rows, isOpen);
+        }).join('');
+        if (!html) html = '<div style="color:#999;padding:10px;">该维度没有明细</div>';
+    } else {
+        // 本机：按平台分类分组（PASS 的维度显示为"全部通过"）
+        const keys = filterKey ? [filterKey]
+            : Array.from(new Set(Object.keys(byCat).concat(
+                (data.dims || []).map((d) => d.key).filter(Boolean))));
+        html = keys.map((key) => {
+            const items = byCat[key] || [];
+            const rows = items.map((f) => rowHtml(
+                f.severity,
+                (f.episode_index === null || f.episode_index === undefined) ? '' : `ep${f.episode_index}`,
+                `${f.rule}${f.detail ? '：' + f.detail : ''}`)).join('');
+            const worst = items.some((f) => f.severity === 'error') ? 'FAIL'
+                : items.some((f) => f.severity === 'warning') ? 'WARN' : 'PASS';
+            return block(labelOf[key] || key, worst, items.length, rows, items.length > 0);
+        }).join('');
+        if (!html) html = '<div style="color:#999;padding:10px;">没有可显示的明细</div>';
+    }
+
+    if (data.doctor_note) {
+        html = `<div style="font-size:12px;color:#faad14;margin-bottom:10px;">⚠ ${esc(data.doctor_note)}</div>` + html;
+    }
+    document.getElementById('reportChecks').innerHTML =
+        `<div style="font-size:13px;font-weight:600;color:#5a6b85;margin-bottom:8px;">
+            逐项明细${filterKey ? ` · ${esc(labelOf[filterKey] || filterKey)}` : ''}
+            ${filterKey ? '<button class="btn btn-sm" style="background:#f0f0f0;margin-left:8px;" onclick="renderReportChecks(\'\')">显示全部维度</button>' : ''}
+         </div>` + html;
+}
+
+// ------------------------------------------------------------------ 挑出要排除的 episode
+
+let EP_PROBLEMS = null;
+const CURATE_EXCLUDED = new Set();
+
+async function loadEpisodeProblems() {
+    const id = currentDatasetId();
+    if (!id) return;
+    setMsg('curateMsg', '加载中…', '');
+    try {
+        EP_PROBLEMS = await API.get(`/api/datasets/${id}/episode_problems`);
+    } catch (err) {
+        return setMsg('curateMsg', '加载失败：' + err.message, 'error');
+    }
+    CURATE_EXCLUDED.clear();
+    renderCurate();
+    setMsg('curateMsg', '', '');
+}
+
+function renderCurate() {
+    if (!EP_PROBLEMS) return;
+    const d = EP_PROBLEMS;
+    const eps = d.episodes || [];
+    const c = d.counts || {};
+
+    const run = d.run || {};
+    document.getElementById('curateSummary').innerHTML =
+        `数据集 <b>${esc(d.dataset.name)}</b>　共 <b>${eps.length}</b> 条 episode`
+        + `　｜　有 error <b style="color:#cf1322;">${c.with_error || 0}</b> 条`
+        + `　只有 warning <b style="color:#d48806;">${c.with_warning || 0}</b> 条`
+        + `　干净 <b style="color:#389e0d;">${c.clean || 0}</b> 条`
+        + (run.id ? `　｜　问题来自 run${run.id}（${run.is_server ? '服务器质检' : '本机质检'}，${esc(run.created_at || '')}）`
+                  : '　｜　<b style="color:#d48806;">该数据集还没有质检记录</b>');
+
+    const lv = d.dataset_level || [];
+    document.getElementById('curateLevel').innerHTML = lv.length
+        ? '数据集级问题（不针对具体 episode，无法通过排除单条解决）：<br>'
+          + lv.slice(0, 6).map((f) =>
+              `　<span class="status-badge ${f.severity === 'error' ? 'status-error' : 'status-paused'}">${esc(f.severity)}</span>
+               ${esc(f.category || '')} ${esc(f.rule)}：${esc(f.detail)}`).join('<br>')
+        : '';
+
+    const badge = { drop: '<span class="status-badge status-error">error·建议排除</span>',
+                    review: '<span class="status-badge status-paused">仅 warning·待定</span>',
+                    keep: '<span class="status-badge status-done">干净</span>' };
+    document.getElementById('curateBody').innerHTML = eps.map((e) => {
+        const checked = CURATE_EXCLUDED.has(e.episode_index) ? 'checked' : '';
+        return `<tr style="${e.suggest === 'drop' ? 'background:#fff8f8;' : ''}">
+            <td><input type="checkbox" ${checked}
+                       onchange="curateToggle(${e.episode_index}, this.checked)"></td>
+            <td>${e.episode_index}${e.length ? `<div style="font-size:11px;color:#8896ab;">${e.length} 帧</div>` : ''}</td>
+            <td>${badge[e.suggest] || ''}</td>
+            <td>
+                ${e.errors ? `<span class="status-badge status-error">err ${e.errors}</span> ` : ''}
+                ${e.warnings ? `<span class="status-badge status-paused">warn ${e.warnings}</span> ` : ''}
+                ${e.infos ? `<span class="tag">info ${e.infos}</span>` : ''}
+                ${(!e.errors && !e.warnings && !e.infos) ? '<span style="color:#bbb;">-</span>' : ''}
+            </td>
+            <td style="font-size:11px;">${(e.sources || []).map((s) =>
+                s === 'server' ? '服务器' : (s === 'vlm' ? 'VLM' : '本机')).join('/') || '-'}</td>
+            <td style="font-size:11px;color:#5a6b85;">${esc((e.categories || []).join('、') || '-')}</td>
+            <td style="font-size:12px;color:#5a6b85;">${esc((e.issues || []).join('；') || '-')}</td>
+        </tr>`;
+    }).join('');
+
+    curateUpdateFooter();
+}
+
+function curateUpdateFooter() {
+    const eps = (EP_PROBLEMS || {}).episodes || [];
+    const n = CURATE_EXCLUDED.size;
+    const kept = eps.length - n;
+    const frames = eps.filter((e) => CURATE_EXCLUDED.has(e.episode_index))
+        .reduce((sum, e) => sum + (e.length || 0), 0);
+    setMsg('curateMsg',
+        `将排除 ${n} 条（${frames} 帧），保留 ${kept} 条`
+        + (kept === 0 ? ' —— ⚠ 不能全部排除' : ''), n ? 'warn' : '');
+}
+
+function curateToggle(idx, checked) {
+    if (checked) CURATE_EXCLUDED.add(idx); else CURATE_EXCLUDED.delete(idx);
+    curateUpdateFooter();
+}
+
+function curateSelectSuggest() {
+    CURATE_EXCLUDED.clear();
+    ((EP_PROBLEMS || {}).episodes || []).forEach((e) => {
+        if (e.suggest === 'drop') CURATE_EXCLUDED.add(e.episode_index);
+    });
+    renderCurate();
+}
+
+function curateSelectNone() {
+    CURATE_EXCLUDED.clear();
+    renderCurate();
+}
+
+async function doCurate() {
+    const id = currentDatasetId();
+    if (!id || !EP_PROBLEMS) return alert('请先点「刷新问题汇总」');
+    const eps = EP_PROBLEMS.episodes || [];
+    const excluded = Array.from(CURATE_EXCLUDED).sort((a, b) => a - b);
+    if (!excluded.length) return alert('没有勾选任何要排除的 episode');
+    const kept = eps.length - excluded.length;
+    if (kept <= 0) return alert('不能把所有 episode 都排除 —— 那样产出的是空数据集');
+
+    const byIdx = {};
+    eps.forEach((e) => { byIdx[e.episode_index] = e; });
+    const withErr = excluded.filter((i) => (byIdx[i] || {}).errors);
+    const onlyWarn = excluded.filter((i) => {
+        const e = byIdx[i] || {};
+        return !e.errors && e.warnings;
+    });
+    const onlyInfo = excluded.filter((i) => {
+        const e = byIdx[i] || {};
+        return !e.errors && !e.warnings;
+    });
+    const frames = excluded.reduce((s, i) => s + ((byIdx[i] || {}).length || 0), 0);
+
+    let text = `将生成一个新数据集（原数据集 #${id} 完全不动）：\n\n`
+        + `　排除 ${excluded.length} 条：${excluded.join(', ')}\n`
+        + `　保留 ${kept} 条\n`
+        + `　排除的帧数：${frames}\n\n`;
+    if (withErr.length) text += `· ${withErr.length} 条有 error 级问题（客观规则判定的，可以丢）\n`;
+    if (onlyWarn.length) text += `· ${onlyWarn.length} 条只有 warning —— VLM 的判定最多只到 warning，`
+        + `这些属于「待定」而不是「确认坏」。请确认你确实想丢掉它们。\n`;
+    if (onlyInfo.length) text += `· ${onlyInfo.length} 条只有 info（提示级），丢掉它们通常没有依据。\n`;
+    text += `\n原数据集不会被改动，新数据集可随时对比与回退。`;
+
+    const typed = prompt(text + '\n\n确认无误请输入「排除」：');
+    if (typed === null) return;
+    if (typed.trim() !== '排除') return setMsg('curateMsg', '已取消（未输入确认词）', '');
+
+    document.getElementById('curateBarWrap').style.display = 'block';
+    const job = await runJob('preprocess',
+        { dataset_id: id, rule: 'manual', exclude: excluded },
+        { barId: 'curateBar', msgId: 'curateMsg' });
+    if (job.status === 'succeeded') {
+        const r = job.result || {};
+        setMsg('curateMsg', `✅ 已生成新数据集「${r.name || ''}」：`
+            + `${r.episodes} 条 / ${r.frames} 帧（排除 ${excluded.length} 条）。原数据集未改动。`, 'ok');
+        await loadDatasets();
+        await loadRuns();
+    }
+}
+
+async function loadRuns() {
+    const runs = await API.get('/api/qc/runs?limit=15');
+    const tbody = document.getElementById('runBody');
+    if (!runs.length) {
+        tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:#999;padding:20px;">还没有质检记录</td></tr>';
+        return;
+    }
+    tbody.innerHTML = runs.map((r) => {
+        const badge = r.failed
+            ? '<span class="status-badge status-error">打回重采</span>'
+            : '<span class="status-badge status-done">通过</span>';
+        let s = {};
+        try { s = JSON.parse(r.summary_json || '{}'); } catch (e) { s = {}; }
+
+        // 来源：有 remote.host 就是服务器质检
+        const remote = s.remote || {};
+        const source = remote.host
+            ? '<span class="tag" style="background:#e6fffb;color:#08979c;">服务器</span>'
+            : '<span class="tag">本机</span>';
+
+        // 维度命中汇总
+        const cats = s.categories || [];
+        const dims = cats.length
+            ? cats.slice(0, 3).map((c) => {
+                const n = (c.errors || 0) + (c.warnings || 0) + (c.infos || 0);
+                return `${c.label}×${n}`;
+            }).join('，') + (cats.length > 3 ? ` 等 ${cats.length} 项` : '')
+            : '<span style="color:#bbb;">-</span>';
+
+        let vlm = '<span style="color:#bbb;">未跑</span>';
+        const v = s.vlm || {};
+        if (v.enabled) {
+            if (v.effective === false) {
+                // 后端没起来时任务照样"完成"，但一个真实判定都没有 —— 必须显眼区分
+                vlm = '<span class="status-badge status-error">后端不可用·VLM 未生效</span>';
+            } else {
+                vlm = `<span class="tag">${v.checked} 条</span>`
+                    + (v.flagged ? ` <span class="status-badge status-paused">可疑 ${v.flagged}</span>` : '')
+                    + (v.unavailable ? ` <span style="font-size:11px;color:#faad14;">没看成 ${v.unavailable}</span>` : '');
+            }
+        }
+        return `<tr>
+            <td>${r.id}</td>
+            <td>${(DS.find((d) => d.id === r.dataset_id) || {}).name || r.dataset_id}</td>
+            <td style="font-size:12px;">${source}</td>
+            <td>${r.total}</td>
+            <td>${r.passed}</td>
+            <td>${r.failed}</td>
+            <td style="font-size:12px;color:#5a6b85;">${dims}</td>
+            <td>${badge}</td>
+            <td style="font-size:12px;">${vlm}</td>
+            <td style="font-size:11px;color:#8896ab;word-break:break-all;">${(r.report_path || '').split('\\').pop() || '-'}</td>
+            <td style="font-size:12px;color:#999;">${r.created_at}</td>
+            <td style="white-space:nowrap;">
+                <button class="btn btn-sm btn-primary" onclick="showReport(${r.id})">📋 看报告</button>
+                <button class="btn btn-sm" style="background:#f0f0f0;" onclick="showRun(${r.id})">问题明细</button>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+async function showRun(runId) {
+    const run = await API.get(`/api/qc/runs/${runId}`);
+    CURRENT_RUN = run;
+    document.getElementById('detailCard').style.display = 'block';
+    document.getElementById('detailTitle').textContent = `问题明细 · run ${runId}`;
+    const s = run.summary || {};
+    let text = `${run.total} 条：${run.passed} 通过 / ${run.failed} 打回 · 规则命中：`
+        + ((s.rules || []).map((r) => `${r.rule}(error ${r.errors}/warn ${r.warnings})`).join('，') || '无');
+
+    const v = s.vlm || {};
+    if (v.enabled) {
+        if (v.effective === false) {
+            text += `｜VLM：⚠ 后端全程不可用，本次没有产生任何真实内容判定（${v.base_url || ''}）`
+                + `——请先启动模型服务再重新质检`;
+        } else {
+            text += `｜VLM：${v.model} 跑了 ${v.checked} 条，标出可疑 ${v.flagged} 条`
+                + (v.unavailable ? `（其中 ${v.unavailable} 条因后端不可用没看成）` : '')
+                + `，缓存命中 ${v.cached}`;
+        }
+    }
+
+    const remote = s.remote || {};
+    if (remote.host) {
+        text += `｜服务器：${remote.host}　${remote.path || ''}`;
+        if (remote.counts) {
+            text += ` → ${remote.counts.PASS} PASS / ${remote.counts.WARN} WARN / `
+                + `${remote.counts.FAIL} FAIL`;
+        }
+        if (remote.seconds !== undefined && remote.seconds !== null) {
+            text += `，耗时 ${remote.seconds}s` + (remote.cached ? '（缓存命中）' : '');
+        }
+        if (remote.ok === false) {
+            text += `　⚠ ${remote.reason || '未执行'}`;
+        }
+    }
+    document.getElementById('detailSummary').textContent = text;
+
+    // 覆盖率分母
+    const cov = s.coverage || {};
+    const covCats = cov.categories || {};
+    const keys = Object.keys(covCats);
+    document.getElementById('covBox').innerHTML = keys.length
+        ? `覆盖率（各维度跑在多少比例的 episode 上）：共 <b>${cov.episodes || 0}</b> 条 —— `
+          + keys.map((k) => `${k} ${Math.round(covCats[k] * 100)}%`).join('　')
+        : '';
+
+    // 维度下拉：只列出本次真的出现过的维度
+    const labels = {};
+    (s.categories || []).forEach((c) => { labels[c.category] = c.label; });
+    const present = Array.from(new Set((run.findings || [])
+        .map((f) => f.category).filter(Boolean)));
+    const sel = document.getElementById('catFilter');
+    sel.innerHTML = '<option value="">全部</option>' + present.map((k) =>
+        `<option value="${k}">${labels[k] || k}</option>`).join('');
+
+    filterFindings();
+}
+
+function filterFindings() {
+    if (!CURRENT_RUN) return;
+    const onlyVlm = document.getElementById('onlyVlm').checked;
+    const onlyServer = document.getElementById('onlyServer').checked;
+    const cat = document.getElementById('catFilter').value;
+    const sev = document.getElementById('sevFilter').value;
+    const labels = {};
+    ((CURRENT_RUN.summary || {}).categories || [])
+        .forEach((c) => { labels[c.category] = c.label; });
+
+    const rows = (CURRENT_RUN.findings || []).filter((f) =>
+        (!onlyVlm || f.rule.startsWith('VLM·'))
+        && (!onlyServer || f.source === 'server')
+        && (!cat || f.category === cat)
+        && (!sev || f.severity === sev));
+
+    const body = document.getElementById('findBody');
+    body.innerHTML = rows.length ? rows.map((f) => `<tr>
+        <td>${(f.episode_index === null || f.episode_index === undefined)
+            ? '<span style="color:#bbb;">数据集级</span>' : f.episode_index}</td>
+        <td style="font-size:12px;color:#5a6b85;">${labels[f.category] || f.category || '-'}</td>
+        <td>${severityBadge(f.severity)}</td>
+        <td style="font-size:13px;">${f.rule}</td>
+        <td style="font-size:13px;">${f.detail}</td>
+        <td style="font-size:12px;color:#666;">${f.measured || '-'}</td>
+        <td style="font-size:12px;color:#666;">${f.expected || '-'}</td>
+      </tr>`).join('')
+      : '<tr><td colspan="7" style="text-align:center;color:#52c41a;padding:20px;">没有符合条件的问题</td></tr>';
+}
+
+// ------------------------------------------------------------------ VLM 质检
+
+async function checkVlm() {
+    const el = document.getElementById('vlmHealth');
+    try {
+        const h = await API.get('/api/vlm/health');
+        if (h.ok) {
+            el.innerHTML = `<span style="color:#52c41a;">● 后端可达</span>　${h.model}`
+                + (h.model_found ? '' : ' <span style="color:#faad14;">（模型不在列表里）</span>');
+        } else {
+            el.innerHTML = `<span style="color:#ff4d4f;">● 后端不可达</span>`
+                + `<span style="font-size:12px;color:#8896ab;"> ${h.base_url}</span>`;
+        }
+    } catch (err) {
+        el.innerHTML = `<span style="color:#ff4d4f;">● 探活失败：${err.message}</span>`;
+    }
+}
+
+async function doVlmQC() {
+    const datasetId = currentDatasetId();
+    if (!datasetId) return alert('请先接入一个数据集');
+    // 后端不可达时先拦一下：否则任务会正常"完成"，但一条真实判定都不会有，
+    // 很容易被当成"VLM 质检跑过了"。
+    let healthy = false;
+    try { healthy = (await API.get('/api/vlm/health')).ok; } catch (err) { healthy = false; }
+    if (!healthy) {
+        const go = confirm(
+            'VLM 后端不可达 —— 模型服务（ollama）还没启动。\n\n'
+            + '现在执行的话：任务会正常显示"完成"，但每一条都只会得到「服务不可用」，\n'
+            + '一个真实的内容判定都不会产生，等于白跑。\n\n'
+            + '正确做法：先启动后端，等「重新探活」变成绿点再跑。\n\n'
+            + '确定要现在硬跑吗？');
+        if (!go) return;
+    }
+    const payload = {
+        dataset_id: datasetId,
+        vlm: true,
+        vlm_mode: document.getElementById('vlmMode').value,
+        vlm_frames: parseInt(document.getElementById('vlmFrames').value, 10) || 6,
+    };
+    if (document.getElementById('vlmForce').checked) payload.vlm_use_cache = false;
+    const job = await runJob('qc', payload, { barId: 'vlmBar', msgId: 'vlmMsg' });
+    if (job.status === 'succeeded') {
+        const v = (job.result || {}).vlm || {};
+        if (v.enabled && v.effective === false) {
+            setMsg('vlmMsg', '⚠ VLM 未生效：后端全程不可用，本次没有真实内容判定', 'error');
+        }
+        await loadRuns();
+        await loadVlmResults();
+        if (job.result && job.result.run_id) showRun(job.result.run_id);
+    }
+}
+
+let VLM_BATCHES = [];
+
+async function loadVlmBatchOptions(datasetId) {
+    const sel = document.getElementById('vlmBatch');
+    let data = { batches: [], latest: null };
+    try {
+        data = await API.get(`/api/vlm/batches?dataset_id=${datasetId}`);
+    } catch (err) { /* 批次接口失败就退回默认（最新一批） */ }
+    VLM_BATCHES = data.batches || [];
+    const keep = sel.value;
+    let html = '';
+    VLM_BATCHES.forEach((b, i) => {
+        html += `<option value="${b.key}">第 ${VLM_BATCHES.length - i} 批　`
+            + `${b.episodes} 条　${esc(b.started_at || '')}　平均 ${b.avg_ms}ms`
+            + (b.is_latest ? '　← 最新' : '') + `</option>`;
+    });
+    if (VLM_BATCHES.length > 1) {
+        html += '<option value="all">全部批次（每个 episode 取最新一份）</option>';
+    }
+    sel.innerHTML = html;
+    if (keep && Array.from(sel.options).some((o) => o.value === keep)) sel.value = keep;
+    else if (data.latest) sel.value = data.latest;
+    return VLM_BATCHES;
+}
+
+function renderVlmBatchInfo(batch, rows) {
+    const el = document.getElementById('vlmBatchInfo');
+    if (!el) return;
+    const b = VLM_BATCHES.find((x) => x.key === batch);
+    const flagged = rows.filter((r) => !r.compliant).length;
+    let text = `当前显示 <b>${rows.length}</b> 条 episode`;
+    if (b) {
+        text += `　｜　批次 <code>${esc(String(b.key).slice(0, 12))}</code>　模型 ${esc(b.model)}`
+            + `　${esc(b.started_at || '')} ~ ${esc(b.finished_at || '')}`
+            + `　平均 ${b.avg_ms}ms`;
+    } else if (batch === 'all') {
+        text += `　｜　<b>跨全部 ${VLM_BATCHES.length} 个批次</b>，每个 episode 只取最新一份`;
+    }
+    text += `　｜　合规 ${rows.length - flagged} / 可疑 `
+        + `<b style="color:${flagged ? '#d48806' : '#52c41a'};">${flagged}</b>`;
+    if (VLM_BATCHES.length > 1) {
+        text += `<br>该数据集共有 <b>${VLM_BATCHES.length}</b> 个批次`
+            + `（问题清单 / 模型 / 抽帧参数改过就会新增一批，缓存键含 prompt_hash）。`
+            + `用上面的「批次」下拉框切换，或选「全部批次」只看每个 episode 的最新结论。`;
+    }
+    el.innerHTML = text;
+}
+
+async function loadVlmResults() {
+    const datasetId = currentDatasetId();
+    const tbody = document.getElementById('vlmBody');
+    if (!datasetId || !tbody) return;
+    const onlyFlagged = document.getElementById('vlmOnlyFlagged').checked;
+    await loadVlmBatchOptions(datasetId);
+    const batch = document.getElementById('vlmBatch').value || 'latest';
+
+    let rows = [];
+    try {
+        rows = await API.get(`/api/vlm/results?dataset_id=${datasetId}&limit=200`
+            + `&only_flagged=${onlyFlagged}&batch=${encodeURIComponent(batch)}`);
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="6" style="color:#ff4d4f;padding:12px;">加载失败：${esc(err.message)}</td></tr>`;
+        return;
+    }
+    renderVlmBatchInfo(batch, rows);
+    const note = document.getElementById('vlmDupNote');
+    if (note) note.style.display = 'none';       // 批次提示已取代原来的"多份缓存"提示
+
+    if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;padding:20px;">'
+            + '该批次没有结果（或全都合规、被「只看可疑」过滤掉了）</td></tr>';
+        return;
+    }
+    tbody.innerHTML = rows.map((row) => {
+        const r = row.result || {};
+        const verdict = r.verdict || 'unknown';
+        const cls = { pass: 'status-done', suspect: 'status-paused', fail: 'status-error' }[verdict] || 'status-offline';
+        const answers = (r.checklist || []).filter((c) => c.polarity === 'positive')
+            .map((c) => {
+                // 正反不一致时，系统实际落库的是「待人工确认」（info），不是合规判定 ——
+                // 再打 ✔/✘ 会把"模型这次没看准"误读成"数据有问题"。
+                const uncertain = c.agreement === false;
+                const color = uncertain ? '#faad14' : (c.ok ? '#52c41a' : '#fa541c');
+                const mark = uncertain ? '?' : (c.ok ? '✔' : '✘');
+                const neg = (r.checklist || []).find(
+                    (x) => x.rule === c.rule && x.polarity === 'negative');
+                const why = esc((c.why || '').trim());
+                const whyNeg = esc(((neg && neg.why) || '').trim());
+                let cell = `<div style="font-size:12px;color:${color};line-height:1.75;">`
+                    + `${mark} <b>${esc(c.rule.replace('VLM·', ''))}</b>：${esc(c.answer)}`;
+                if (uncertain) {
+                    cell += ` <span style="color:#faad14;">← 正反不一致，待人工确认</span>`;
+                    // 不一致时必须把两次回答都摆出来，否则看不出哪里矛盾
+                    cell += `<div style="color:#8896ab;padding-left:14px;">`
+                        + `正问「${esc(c.q || '')}」答 <b>${esc(c.answer)}</b>`
+                        + (why ? ` — ${why}` : ' — (模型没给理由)') + `</div>`;
+                    if (neg) {
+                        cell += `<div style="color:#8896ab;padding-left:14px;">`
+                            + `反问「${esc(neg.q || '')}」答 <b>${esc(neg.answer)}</b>`
+                            + (whyNeg ? ` — ${whyNeg}` : ' — (模型没给理由)') + `</div>`;
+                    }
+                } else if (why) {
+                    cell += `<div style="color:#8896ab;padding-left:14px;">依据：${why}</div>`;
+                }
+                return cell + '</div>';
+            }).join('');
+        const d = r.describe || {};
+        const desc = [];
+        if (d.description) desc.push(`<div style="font-size:12px;color:#5a6b85;">${d.description}</div>`);
+        if (d.suggested_instruction) desc.push(`<div style="font-size:12px;color:#2b7de9;">建议指令：${d.suggested_instruction}</div>`);
+        (d.failure_signs || []).forEach((s) => desc.push(`<div style="font-size:12px;color:#ff4d4f;">失败迹象：${s}</div>`));
+        if (r.error) desc.push(`<div style="font-size:12px;color:#ff4d4f;">${r.error}</div>`);
+        return `<tr>
+            <td>${row.episode_index}</td>
+            <td><span class="status-badge ${cls}">${verdict}</span>
+                ${row.compliant ? '' : '<div style="font-size:11px;color:#8896ab;">待人工复核</div>'}</td>
+            <td>${answers || '<span style="color:#bbb;">-</span>'}</td>
+            <td>${desc.join('') || '<span style="color:#bbb;">-</span>'}</td>
+            <td style="font-size:12px;color:#666;">${row.latency_ms || 0} ms</td>
+            <td style="font-size:12px;color:#999;">${row.created_at || ''}</td>
+        </tr>`;
+    }).join('');
+}
+
+async function applyVlmInstructions() {
+    const datasetId = currentDatasetId();
+    if (!datasetId) return alert('请先接入一个数据集');
+    const overwrite = confirm(
+        '把 VLM 描述式产出的「建议指令」写进标注表？\n\n'
+        + '确定 = 覆盖已有人工指令\n取消 = 只填空白的（推荐）');
+    try {
+        const res = await API.post('/api/vlm/apply-instruction',
+            { dataset_id: datasetId, overwrite });
+        const skipped = (res.skipped || []).length;
+        alert(`已回填 ${(res.applied || []).length} 条语言指令，跳过 ${skipped} 条`);
+    } catch (err) {
+        alert('回填失败：' + err.message);
+    }
+}
+
+// ------------------------------------------------------------------ VLM 配置与问题清单
+
+let VLM_CFG = null;
+let CK = [];
+
+function esc(text) {
+    return String(text === null || text === undefined ? '' : text)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+async function loadVlmConfig() {
+    const data = await API.get('/api/vlm/config');
+    VLM_CFG = data.config || {};
+    document.getElementById('cfgPath').textContent = data.path || '-';
+    document.getElementById('cfgBase').value = VLM_CFG.base_url || '';
+    document.getElementById('cfgModel').value = VLM_CFG.model || '';
+    document.getElementById('cfgKey').value = VLM_CFG.api_key || '';
+    document.getElementById('cfgTimeout').value = VLM_CFG.timeout_s || 180;
+    document.getElementById('cfgFrames').value = VLM_CFG.frames || 6;
+    document.getElementById('cfgMode').value = VLM_CFG.mode || 'both';
+    document.getElementById('cfgCache').checked = VLM_CFG.use_cache !== false;
+    // 执行区的默认值也跟着配置走，避免两处不一致
+    document.getElementById('vlmMode').value = VLM_CFG.mode || 'both';
+    document.getElementById('vlmFrames').value = VLM_CFG.frames || 6;
+    CK = (VLM_CFG.checklist || []).map((item) => Object.assign({}, item));
+    renderCk();
+}
+
+function ckRow(item, i) {
+    const opt = (value, current) =>
+        `<option value="${value}" ${current === value ? 'selected' : ''}>${value}</option>`;
+    return `<tr>
+        <td><input value="${esc(item.rule)}" oninput="ckSet(${i},'rule',this.value)"
+                   style="padding:5px 8px;border:1px solid #e0e0e0;border-radius:4px;width:100%;"></td>
+        <td><textarea rows="2" oninput="ckSet(${i},'q',this.value)"
+                   style="padding:5px 8px;border:1px solid #e0e0e0;border-radius:4px;width:100%;font-size:12px;">${esc(item.q)}</textarea></td>
+        <td><textarea rows="2" oninput="ckSet(${i},'q_neg',this.value)"
+                   style="padding:5px 8px;border:1px solid #e0e0e0;border-radius:4px;width:100%;font-size:12px;">${esc(item.q_neg)}</textarea></td>
+        <td><select onchange="ckSet(${i},'expect',this.value)"
+                   style="padding:5px 8px;border:1px solid #e0e0e0;border-radius:4px;width:100%;">
+            ${opt('yes', item.expect)}${opt('no', item.expect)}</select></td>
+        <td><select onchange="ckSet(${i},'severity',this.value)"
+                   style="padding:5px 8px;border:1px solid #e0e0e0;border-radius:4px;width:100%;">
+            ${opt('warning', item.severity)}${opt('info', item.severity)}</select></td>
+        <td><button class="btn btn-sm" style="background:#f0f0f0;" onclick="removeCkRow(${i})">删除</button></td>
+    </tr>`;
+}
+
+function renderCk() {
+    document.getElementById('ckBody').innerHTML = CK.length
+        ? CK.map((item, i) => ckRow(item, i)).join('')
+        : '<tr><td colspan="6" style="text-align:center;color:#999;padding:14px;">问题清单为空（保存后会用默认清单）</td></tr>';
+}
+
+function ckSet(i, key, value) { CK[i][key] = value; }
+
+function addCkRow() {
+    CK.push({ rule: 'VLM·新规则', q: '', q_neg: '', expect: 'yes', severity: 'warning' });
+    renderCk();
+}
+
+function removeCkRow(i) { CK.splice(i, 1); renderCk(); }
+
+async function saveVlmConfig() {
+    const bad = CK.findIndex((item) => !(item.q || '').trim());
+    if (bad >= 0) {
+        if (!confirm(`第 ${bad + 1} 条的「问题」是空的，保存后 VLM 无法据此判断。仍然保存？`)) return;
+    }
+    const payload = {
+        base_url: document.getElementById('cfgBase').value.trim(),
+        model: document.getElementById('cfgModel').value.trim(),
+        api_key: document.getElementById('cfgKey').value.trim(),
+        timeout_s: parseInt(document.getElementById('cfgTimeout').value, 10) || 180,
+        frames: parseInt(document.getElementById('cfgFrames').value, 10) || 6,
+        mode: document.getElementById('cfgMode').value,
+        use_cache: document.getElementById('cfgCache').checked,
+    };
+    // 清单为空时不要发 checklist 键（那会被当成"恢复默认"清掉）
+    if (CK.length) payload.checklist = CK;
+    try {
+        await API.put('/api/vlm/config', payload);
+        await loadVlmConfig();
+        await checkVlm();
+        setMsg('vlmMsg', '配置已保存', 'ok');
+    } catch (err) {
+        setMsg('vlmMsg', '保存失败：' + err.message, 'error');
+    }
+}
+
+async function resetChecklist() {
+    if (!confirm('恢复成内置的默认问题清单？当前自定义的问题会被丢弃。')) return;
+    // 后端约定：checklist 传空数组 = 清掉自定义、回到默认
+    await API.put('/api/vlm/config', { checklist: [] });
+    await loadVlmConfig();
+    setMsg('vlmMsg', '已恢复默认问题清单', 'ok');
+}
+
+// ------------------------------------------------------------------ 服务器质检
+
+let REMOTE_CFG = null;
+let REMOTE_PRESETS = {};
+
+function vThrHint() {
+    const own = (REMOTE_PRESETS.doctor_own_defaults || {});
+    const box = document.getElementById('rcThrHint');
+    if (!box) return;
+    const cur = {
+        frozen_max_run_pct: parseFloat(document.getElementById('rcFrozen').value),
+        clip_extreme_pct: parseFloat(document.getElementById('rcClip').value),
+        jump_sigma: parseFloat(document.getElementById('rcJump').value),
+    };
+    const changed = Object.keys(cur).filter(
+        (k) => own[k] != null && Math.abs(cur[k] - own[k]) > 1e-9);
+    box.innerHTML = `lerobot-doctor 原值：冻结 &gt; ${own.frozen_max_run_pct}　`
+        + `贴极值 &gt; ${own.clip_extreme_pct}　突变 σ &gt; ${own.jump_sigma}`
+        + (changed.length
+            ? `　<span style="color:#d46b08;">（你改了 ${changed.length} 项：${changed.join('、')}）</span>`
+            : '　<span style="color:#52c41a;">（当前与原值一致）</span>');
+}
+
+function applyTeleopPreset() {
+    const t = (REMOTE_PRESETS.teleop || {});
+    if (t.frozen_max_run_pct != null) document.getElementById('rcFrozen').value = t.frozen_max_run_pct;
+    if (t.clip_extreme_pct != null) document.getElementById('rcClip').value = t.clip_extreme_pct;
+    if (t.jump_sigma != null) document.getElementById('rcJump').value = t.jump_sigma;
+    vThrHint();
+    setMsg('rcThrMsg', '已套用遥操预设，别忘了点「保存配置」', 'warn');
+}
+
+function applyDoctorDefaults() {
+    const own = (REMOTE_PRESETS.doctor_own_defaults || {});
+    if (own.frozen_max_run_pct != null) document.getElementById('rcFrozen').value = own.frozen_max_run_pct;
+    if (own.clip_extreme_pct != null) document.getElementById('rcClip').value = own.clip_extreme_pct;
+    if (own.jump_sigma != null) document.getElementById('rcJump').value = own.jump_sigma;
+    vThrHint();
+    setMsg('rcThrMsg', '已恢复 lerobot-doctor 原值', '');
+}
+
+function updateRemoteDsName() {
+    const id = currentDatasetId();
+    // 三处数据集下拉框（顶部 dsSel / 服务器质检 remoteDs / VLM vlmDs）保持一致
+    const sel = document.getElementById('remoteDs');
+    if (sel && id != null) sel.value = String(id);
+    const vlmSel = document.getElementById('vlmDs');
+    if (vlmSel && id != null) vlmSel.value = String(id);
+    document.getElementById('remotePath').innerHTML = '';
+}
+
+// 服务器质检卡片里的数据集下拉
+function remotePickDataset(value) {
+    const top = document.getElementById('dsSel');
+    if (!top || !value) return;
+    top.value = value;
+    loadVlmResults();
+    checkVlm();
+    updateRemoteDsName();
+    const vlmSel = document.getElementById('vlmDs');
+    if (vlmSel) vlmSel.value = value;
+}
+
+async function loadRemoteConfig() {
+    try {
+        const data = await API.get('/api/qc/remote/config');
+        REMOTE_CFG = data.config || {};
+        const g = (id) => document.getElementById(id);
+        g('rcHost').value = REMOTE_CFG.host || '';
+        g('rcUser').value = REMOTE_CFG.user || '';
+        g('rcBase').value = REMOTE_CFG.qcenv_base || '';
+        g('rcTimeout').value = REMOTE_CFG.timeout_s || 1800;
+        g('rcMaxEp').value = REMOTE_CFG.max_episodes || 0;
+        g('rcChecks').value = REMOTE_CFG.checks || '';
+        g('rcCache').checked = REMOTE_CFG.use_cache !== false;
+        g('rcKeepPass').checked = !!REMOTE_CFG.keep_pass_messages;
+        g('rcFailError').checked = !!REMOTE_CFG.fail_as_error;
+        g('rcRoots').value = (REMOTE_CFG.roots || []).join('\n');
+        g('rcUploadEnabled').checked = REMOTE_CFG.upload_enabled !== false;
+        g('rcUploadRoot').value = REMOTE_CFG.upload_root || '';
+        g('rcUploadMaxGB').value = REMOTE_CFG.upload_max_bytes
+            ? (REMOTE_CFG.upload_max_bytes / 1024 / 1024 / 1024).toFixed(1) : 0;
+
+        // 第三方检查阈值
+        const doc = REMOTE_CFG.doctor || {};
+        g('rcRejudge').checked = doc.rejudge !== false;
+        g('rcFrozen').value = doc.frozen_max_run_pct != null ? doc.frozen_max_run_pct : 0.05;
+        g('rcClip').value = doc.clip_extreme_pct != null ? doc.clip_extreme_pct : 0.5;
+        g('rcJump').value = doc.jump_sigma != null ? doc.jump_sigma : 8;
+        g('rcDisagree').checked = doc.report_disagreements !== false;
+        REMOTE_PRESETS = data.presets || {};
+        vThrHint();
+    } catch (err) {
+        setMsg('remoteMsg', '读取服务器质检配置失败：' + err.message, 'error');
+    }
+}
+
+async function saveRemoteConfig() {
+    const g = (id) => document.getElementById(id);
+    const payload = {
+        host: g('rcHost').value.trim(),
+        user: g('rcUser').value.trim(),
+        qcenv_base: g('rcBase').value.trim(),
+        timeout_s: parseInt(g('rcTimeout').value, 10) || 1800,
+        max_episodes: parseInt(g('rcMaxEp').value, 10) || 0,
+        checks: g('rcChecks').value.trim(),
+        use_cache: g('rcCache').checked,
+        keep_pass_messages: g('rcKeepPass').checked,
+        fail_as_error: g('rcFailError').checked,
+        roots: g('rcRoots').value.split('\n').map((s) => s.trim()).filter(Boolean),
+        upload_enabled: g('rcUploadEnabled').checked,
+        upload_root: g('rcUploadRoot').value.trim(),
+        upload_max_bytes: Math.round((parseFloat(g('rcUploadMaxGB').value) || 0) * 1024 * 1024 * 1024),
+        doctor: {
+            rejudge: g('rcRejudge').checked,
+            frozen_max_run_pct: parseFloat(g('rcFrozen').value),
+            clip_extreme_pct: parseFloat(g('rcClip').value),
+            jump_sigma: parseFloat(g('rcJump').value),
+            report_disagreements: g('rcDisagree').checked,
+        },
+    };
+    try {
+        await API.put('/api/qc/remote/config', payload);
+        await loadRemoteConfig();
+        await probeRemote();
+        setMsg('rcSaveMsg', '已保存', 'ok');
+        setMsg('remoteMsg', '配置已保存', 'ok');
+    } catch (err) {
+        setMsg('remoteMsg', '保存失败：' + err.message, 'error');
+    }
+}
+
+async function probeRemote() {
+    const el = document.getElementById('remoteHealth');
+    try {
+        const h = await API.get('/api/qc/remote/probe');
+        if (h.ok && h.doctor) {
+            el.innerHTML = '<span style="color:#52c41a;">● 就绪</span>　'
+                + `${esc(h.user)}@${esc(h.host)}　lerobot-doctor ${esc(h.version)}`;
+        } else if (h.ok) {
+            el.innerHTML = '<span style="color:#faad14;">● SSH 通，但远端工具缺失</span>';
+        } else {
+            el.innerHTML = '<span style="color:#ff4d4f;">● 不可用</span>';
+        }
+        document.getElementById('remoteMsg').textContent = h.detail || '';
+    } catch (err) {
+        el.innerHTML = `<span style="color:#ff4d4f;">● 探活失败：${esc(err.message)}</span>`;
+    }
+}
+
+async function resolveRemotePath() {
+    const id = currentDatasetId();
+    if (!id) return;
+    try {
+        const r = await API.get(`/api/qc/remote/resolve/${id}`);
+        const el = document.getElementById('remotePath');
+        if (r.path) {
+            el.innerHTML = `✅ 服务器路径：<b>${esc(r.path)}</b>`
+                + `　<span style="color:#8896ab;">（${esc(r.source || '')}）</span>`;
+        } else {
+            el.innerHTML = `⚠ ${esc(r.detail || '未找到')}`
+                + ((r.checked && r.checked.length)
+                    ? `<br>已查：${r.checked.map(esc).join('　')}` : '');
+        }
+    } catch (err) {
+        setMsg('remoteMsg', '解析失败：' + err.message, 'error');
+    }
+}
+
+async function editServerPath() {
+    const id = currentDatasetId();
+    if (!id) return alert('请先选择数据集');
+    const d = DS.find((x) => x.id === id) || {};
+    const value = prompt(
+        `给「${d.name}」指定服务器上的数据集路径。\n\n`
+        + '留空 = 清除，回到按目录名自动匹配。\n'
+        + '必须位于配置的 roots 白名单之内。', d.server_path || '');
+    if (value === null) return;
+    try {
+        await API.put(`/api/datasets/${id}/server_path`, { server_path: value.trim() });
+        DS = await API.get('/api/datasets');
+        await loadRuns();
+        await resolveRemotePath();
+        setMsg('remoteMsg', value.trim() ? '已指定服务器路径' : '已清除指定，回到自动匹配', 'ok');
+    } catch (err) {
+        setMsg('remoteMsg', '设置失败：' + err.message, 'error');
+    }
+}
+
+async function doRemoteQC(withUpload) {
+    const id = currentDatasetId();
+    if (!id) return alert('请先选择数据集');
+    const probe = await API.get('/api/qc/remote/probe').catch(() => ({ ok: false }));
+    if (!probe.ok || !probe.doctor) {
+        const go = confirm('服务器侧未就绪：' + (probe.detail || '未知原因')
+            + '\n\n现在执行的话，任务会正常"完成"，但只会留下一条「未执行」的告警。\n\n仍然继续？');
+        if (!go) return;
+    }
+
+    const payload = { dataset_id: id };
+    if (document.getElementById('remoteForce').checked) payload.force = true;
+
+    if (withUpload) {
+        // 上传前先把账算清楚：多大、服务器还剩多少、是不是已经传过
+        let st;
+        try {
+            st = await API.get(`/api/qc/remote/upload_status/${id}`);
+        } catch (err) {
+            return setMsg('remoteMsg', '无法计算上传计划：' + err.message, 'error');
+        }
+        const mb = (b) => (b / 1024 / 1024).toFixed(1) + 'MB';
+        const gb = (b) => (b / 1024 / 1024 / 1024).toFixed(2) + 'GB';
+        if (!st.allowed) {
+            return setMsg('remoteMsg', '不允许上传：' + st.reason, 'error');
+        }
+        let text = `把本机数据集「${st.name}」同步到服务器后质检。\n\n`
+            + `本机大小：${mb(st.local.bytes)}（${st.local.files} 个文件）\n`
+            + `上传目标：${st.target}\n`
+            + `服务器剩余：${st.free_bytes < 0 ? '未知' : gb(st.free_bytes)}\n`
+            + (st.already ? '服务器上已有指纹一致的副本，将跳过上传。\n' : '')
+            + `\n${st.reason}\n\n继续吗？`;
+        if (!confirm(text)) return;
+        payload.upload = true;
+        if (st.already) payload.force_upload = false;
+    }
+
+    const job = await runJob('qc_remote', payload, { barId: 'remoteBar', msgId: 'remoteMsg' });
+    if (job.status === 'succeeded') {
+        await loadRuns();
+        await resolveRemotePath();
+        if (job.result && job.result.run_id) showRun(job.result.run_id);
+    }
+}
+
+document.getElementById('dsSel').addEventListener('change', () => {
+    loadVlmResults();
+    checkVlm();
+    updateRemoteDsName();
+    const vlmSel = document.getElementById('vlmDs');
+    if (vlmSel) vlmSel.value = document.getElementById('dsSel').value;
+    // 换了数据集，问题汇总与勾选状态都要重置
+    EP_PROBLEMS = null;
+    CURATE_EXCLUDED.clear();
+    document.getElementById('curateBody').innerHTML =
+        '<tr><td colspan="7" style="text-align:center;color:#999;padding:20px;">点「刷新问题汇总」加载</td></tr>';
+    document.getElementById('curateSummary').textContent = '';
+    document.getElementById('curateLevel').textContent = '';
+    document.getElementById('curateMsg').textContent = '';
+});
+
+loadDatasets();
+loadVlmConfig();
+loadRemoteConfig().then(() => { updateRemoteDsName(); probeRemote(); });
+loadEpisodeProblems();
+</script>
+{% endblock %}

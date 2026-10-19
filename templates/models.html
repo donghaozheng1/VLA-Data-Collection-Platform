@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block page_title %}模型管理{% endblock %}
+{% block content %}
+<div class="flex mb-12">
+    <div><span class="text-muted">🧩 真实模型推理：权重来自磁盘扫描，推理在 <b>envs\yolov8n</b>（torch 2.11+cu128 / GPU）里跑，平台只做代理</span></div>
+    <button class="btn btn-primary" onclick="loadAll()">刷新</button>
+</div>
+
+<div class="card" id="statusCard">
+    <h3>推理服务状态</h3>
+    <div id="statusBox" style="font-size:13px;color:#666;">检测中…</div>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">真实模型清单（扫描磁盘上的 .pt）</h3>
+        <span class="text-muted" id="modelCount"></span>
+    </div>
+    <table class="table">
+        <tr><th>模型</th><th>大小</th><th>任务</th><th>类别数</th><th>类别</th><th>可加载</th><th>操作</th></tr>
+        <tbody id="modelBody"><tr><td colspan="7" style="text-align:center;color:#999;padding:18px;">加载中…</td></tr></tbody>
+    </table>
+</div>
+
+<div class="card">
+    <h3>推理测试（真实推理，不再随机画框）</h3>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">模型</label>
+            <select id="modelSel" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;min-width:220px;"></select>
+        </div>
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">置信度阈值 <span id="confLabel">0.25</span></label>
+            <input id="confInput" type="range" min="0.05" max="0.9" step="0.05" value="0.25" oninput="document.getElementById('confLabel').textContent=this.value">
+        </div>
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">测试图片</label>
+            <input type="file" id="fileInput" accept="image/*">
+        </div>
+        <button class="btn btn-primary" onclick="runInference()">开始推理</button>
+    </div>
+    <div id="inferMsg" style="font-size:13px;color:#666;margin-top:10px;"></div>
+</div>
+
+<div class="card" id="resultCard" style="display:none;">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">推理结果</h3>
+        <span class="text-muted" id="resultMeta"></span>
+    </div>
+    <div style="display:flex;gap:20px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:260px;">
+            <div style="font-weight:600;font-size:14px;margin-bottom:4px;">📷 原图</div>
+            <img id="originalImage" style="width:100%;border-radius:6px;border:1px solid #e9edf4;">
+        </div>
+        <div style="flex:1;min-width:260px;">
+            <div style="font-weight:600;font-size:14px;margin-bottom:4px;">🎯 真实推理结果（ultralytics 画的框）</div>
+            <img id="resultImage" style="width:100%;border-radius:6px;border:1px solid #e9edf4;">
+        </div>
+    </div>
+    <table class="table" style="margin-top:14px;">
+        <tr><th>类别</th><th>置信度</th><th>bbox [x1,y1,x2,y2]</th></tr>
+        <tbody id="detBody"></tbody>
+    </table>
+</div>
+
+<script>
+let MODELS = [];
+
+async function loadStatus() {
+    const h = await API.get('/api/inference/health');
+    const box = document.getElementById('statusBox');
+    if (h.running) {
+        box.innerHTML = `<span class="status-badge status-done">运行中</span>
+            &nbsp;设备 <b>${h.device}</b>　CUDA <b>${h.cuda}</b>　torch <b>${h.torch}</b>　
+            ultralytics <b>${h.ultralytics}</b>　默认模型 <b>${h.default_model}</b>
+            <div class="text-muted" style="margin-top:6px;">服务地址 ${h.service_url}　已加载 ${(h.loaded_models || []).length} 个模型</div>`;
+    } else {
+        box.innerHTML = `<span class="status-badge status-error">未运行</span> ${h.error || ''}
+            <div style="margin-top:8px;">在项目根目录执行（用 torch 可用的那个环境）：</div>
+            <div style="background:#1a1a2e;color:#e0e0e0;padding:10px 12px;border-radius:6px;margin-top:6px;overflow:auto;font-size:12px;">${h.start_command || ''}</div>`;
+    }
+}
+
+async function loadModels() {
+    const data = await API.get('/api/inference/models?probe=true');
+    MODELS = data.models || [];
+    document.getElementById('modelCount').textContent = `共 ${MODELS.length} 个`;
+    const body = document.getElementById('modelBody');
+    if (!MODELS.length) {
+        body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;padding:18px;">没扫到 .pt 权重（检查推理服务的 --scan-dirs）</td></tr>';
+    } else {
+        body.innerHTML = MODELS.map((m) => {
+            const ok = m.loadable === true ? '<span class="status-badge status-done">可以</span>'
+                : (m.loadable === false ? `<span class="status-badge status-error" title="${m.error || ''}">加载失败</span>`
+                    : '<span class="status-badge status-offline">未探测</span>');
+            const cls = (m.classes || []).slice(0, 6).join(', ') + ((m.classes || []).length > 6 ? ' …' : '');
+            return `<tr>
+                <td><strong>${m.name}</strong></td>
+                <td>${m.size_mb} MB</td>
+                <td>${m.task || '-'}</td>
+                <td>${m.num_classes ?? '-'}</td>
+                <td style="font-size:12px;color:#666;">${cls || '-'}</td>
+                <td>${ok}</td>
+                <td><button class="btn btn-primary btn-sm" onclick="pickModel('${m.name}')">用这个测试</button></td>
+            </tr>`;
+        }).join('');
+    }
+    const sel = document.getElementById('modelSel');
+    sel.innerHTML = MODELS.filter((m) => m.loadable !== false)
+        .map((m) => `<option value="${m.name}" ${m.name === data.default ? 'selected' : ''}>${m.name}（${m.num_classes ?? '?'} 类）</option>`).join('');
+}
+
+function pickModel(name) {
+    const sel = document.getElementById('modelSel');
+    if ([...sel.options].some((o) => o.value === name)) {
+        sel.value = name;
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    } else {
+        alert('该模型加载失败，不能用于推理：' + name);
+    }
+}
+
+async function runInference() {
+    const file = document.getElementById('fileInput').files[0];
+    if (!file) return alert('请先选择一张测试图片');
+    const conf = parseFloat(document.getElementById('confInput').value);
+    const model = document.getElementById('modelSel').value;
+    setMsg('inferMsg', `推理中（${model}）…`);
+    const reader = new FileReader();
+    reader.onload = async () => {
+        const b64 = String(reader.result).split(',')[1];
+        try {
+            const r = await API.post('/api/inference/predict',
+                { image_b64: b64, model, conf, render: true });
+            document.getElementById('resultCard').style.display = 'block';
+            document.getElementById('originalImage').src = reader.result;
+            if (r.rendered_b64) {
+                document.getElementById('resultImage').src = 'data:image/jpeg;base64,' + r.rendered_b64;
+            } else {
+                document.getElementById('resultImage').removeAttribute('src');
+            }
+            const sp = r.speed_ms || {};
+            document.getElementById('resultMeta').textContent =
+                `${r.model}　端到端 ${r.inference_ms}ms（预处理 ${sp.preprocess ?? '-'} / 推理 ${sp.inference ?? '-'} / 后处理 ${sp.postprocess ?? '-'}）　设备 ${r.device}　图像 ${r.image_size[0]}×${r.image_size[1]}`;
+            const body = document.getElementById('detBody');
+            body.innerHTML = r.detections.length ? r.detections.map((d) => `<tr>
+                <td><strong>${d.class}</strong></td>
+                <td>${(d.confidence * 100).toFixed(1)}%</td>
+                <td style="font-size:12px;color:#666;">[${d.bbox.join(', ')}]</td>
+              </tr>`).join('')
+              : '<tr><td colspan="3" style="text-align:center;color:#faad14;padding:14px;">该模型在这张图上没有检出目标（阈值已生效，属于正常结果）</td></tr>';
+            setMsg('inferMsg', `完成：检出 ${r.count} 个目标，耗时 ${r.inference_ms}ms`, 'ok');
+        } catch (err) {
+            setMsg('inferMsg', '推理失败：' + err.message, 'error');
+        }
+    };
+    reader.readAsDataURL(file);
+}
+
+function loadAll() {
+    loadStatus();
+    loadModels();
+}
+
+loadAll();
+</script>
+{% endblock %}

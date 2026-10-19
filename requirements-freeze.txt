@@ -1,0 +1,277 @@
+# HKC_Data_Platform —— 环境依赖冻结清单
+# 生成方式：扫描各私有依赖目录的 *.dist-info/METADATA + pip freeze + 服务器环境
+# 用途：环境可重建；备份时不需要备份 .deps_* / .vendor 这类解压出来的库
+#
+# 重建方式（本机）：
+#   1) 平台运行时：用 base python，把 .vendor 放进 PYTHONPATH（见 start.cmd）
+#   2) 训练依赖：python tools/wheel_install.py  <包名…>   （或直接 pip install -r 本文件对应段）
+#   3) 仿真依赖：同 .deps_libero 段
+
+==============================================================================
+# 1. base python（平台运行时解释器）pip freeze
+==============================================================================
+absl-py==2.5.0
+anaconda-anon-usage @ file:///home/task_177490767889375/croot/anaconda-anon-usage_1774907925443/work
+anaconda-auth==0.14.2
+anaconda-cli-base @ file:///C:/Users/task_177546921754652/croot/anaconda-cli-base_1775469318924/work
+annotated-doc==0.0.5
+annotated-types @ file:///C:/miniconda3/conda-bld/annotated-types_1761745045323/work
+anyio @ file:///C:/Users/task_177313442952008/croot/anyio_1773134529773/work
+archspec @ file:///home/task_175812491784513/conda-bld/archspec_1758124989039/work
+backports.tarfile @ file:///C:/b/abs_c0eaq29_rf/croot/backports.tarfile_1728485199412/work
+backports.zstd @ file:///C:/Users/task_177317826630192/croot/backports.zstd_1773178398781/work
+blinker==1.9.0
+boltons @ file:///C:/b/abs_e2_iokhxbp/croot/boltons_1751383740243/work
+brotlicffi @ file:///C:/miniconda3/conda-bld/brotlicffi_1764961372591/work
+certifi==2026.4.22
+cffi==1.17.1
+charset-normalizer @ file:///C:/miniconda3/conda-bld/charset-normalizer_1761744944645/work
+click==8.2.1
+colorama==0.4.6
+conda @ file:///C:/Users/task_177739502236650/croot/conda_1777395605471/work/conda-src
+conda-anaconda-telemetry @ file:///croot/conda-anaconda-telemetry_1755883788794/work
+conda-anaconda-tos @ file:///C:/b/abs_c9yejtsx9g/croot/conda-anaconda-tos_1755123332641/work
+conda-content-trust @ file:///C:/Users/task_177755428571308/croot/conda-content-trust_1777554396939/work
+conda-libmamba-solver @ file:///home/task_177680598199370/croot/conda-libmamba-solver_1776806057595/work/src
+conda-package-handling==2.4.0
+conda-package-streaming==0.12.0
+contourpy==1.3.2
+cryptography==45.0.7
+cycler==0.12.1
+distro @ file:///C:/b/abs_71xr36ua5r/croot/distro_1714488282676/work
+etils==1.13.0
+exceptiongroup @ file:///C:/Users/task_178047840994980/croot/exceptiongroup_1780478501129/work
+fastapi==0.143.0
+filelock==3.29.0
+fonttools==4.63.0
+frozendict @ file:///C:/miniconda3/conda-bld/frozendict_1761750688296/work
+fsspec==2026.4.0
+glfw==2.10.2
+h11 @ file:///C:/miniconda3/conda-bld/h11_1761931282349/work
+httpcore @ file:///C:/b/abs_25m7_xthp6/croot/httpcore_1748526065845/work
+httpx @ file:///C:/miniconda3/conda-bld/httpx_1760447376159/work
+idna==3.11
+importlib_metadata @ file:///C:/Users/task_177209714089400/croot/importlib_metadata-suite_1772097201408/work
+importlib_resources==7.1.0
+itsdangerous==2.2.0
+jaraco.classes @ file:///C:/b/abs_6erueoob1v/croot/jaraco.classes_1755516340851/work
+jaraco.context @ file:///C:/Users/task_176947775435070/croot/jaraco.context_1769477911062/work
+jaraco.functools @ file:///C:/Users/task_176838931217386/croot/jaraco.functools_1768389439769/work
+Jinja2==3.1.6
+jsonpatch @ file:///C:/b/abs_4fdm88t7zi/croot/jsonpatch_1714483974578/work
+jsonpointer @ file:///C:/Users/task_177443290291366/croot/jsonpointer_1774432975390/work
+keyring @ file:///C:/miniconda3/conda-bld/keyring_1763637201162/work
+kiwisolver==1.5.0
+libmambapy @ file:///C:/Users/task_177669947087741/croot/mamba-split_1776700393019/work/libmambapy
+markdown-it-py @ file:///C:/Users/task_177754046208962/croot/markdown-it-py_1777540583951/work
+MarkupSafe==3.0.3
+matplotlib==3.10.9
+mdurl @ file:///C:/miniconda3/conda-bld/mdurl_1758552284437/work
+menuinst==2.4.2
+more-itertools @ file:///C:/Users/task_177581921041055/croot/more-itertools_1775819427809/work
+mpmath==1.3.0
+msgpack==1.1.1
+mujoco==3.12.0
+networkx==3.4.2
+numpy==2.2.6
+nvidia-ml-py==13.610.43
+opencv-python==5.0.0.93
+opentelemetry-api==1.45.1
+packaging==26.0
+pillow==12.3.0
+pkce @ file:///C:/b/abs_d0z4444tb0/croot/pkce_1690384879799/work
+platformdirs @ file:///C:/Users/task_177365233215608/croot/platformdirs_1773652995602/work
+pluggy @ file:///C:/Users/task_177697290024585/croot/pluggy_1776973020315/work
+polars==1.42.1
+polars-runtime-32==1.42.1
+psutil==7.2.2
+pyarrow==25.0.1
+pycosat @ file:///C:/b/abs_18nblzzn70/croot/pycosat_1736868434419/work
+pycparser @ file:///C:/Users/task_177495971250430/croot/pycparser_1774959822609/work
+pydantic==2.13.2
+pydantic-core==2.46.2
+pydantic-settings @ file:///C:/miniconda3/conda-bld/pydantic-settings_1764165196642/work
+Pygments @ file:///C:/Users/task_177512674411643/croot/pygments_1775127039817/work
+pyjwt==2.12.1
+PyOpenGL==3.1.10
+pyparsing==3.3.2
+pyrealsense2==2.58.2.10647
+PySocks @ file:///C:/miniconda3/conda-bld/pysocks_1761753030270/work
+python-dateutil==2.9.0.post0
+python-dotenv @ file:///C:/Users/task_176855914096354/croot/python-dotenv_1768559764857/work
+python-multipart==0.0.32
+pywin32-ctypes @ file:///C:/Users/task_176829653228857/croot/pywin32-ctypes_1768296653104/work
+PyYAML==6.0.3
+readchar @ file:///C:/miniconda3/conda-bld/readchar_1760613511962/work
+requests==2.33.1
+rich==14.2.0
+ruamel.yaml @ file:///C:/miniconda3/conda-bld/ruamel.yaml_1762535973464/work
+ruamel.yaml.clib @ file:///C:/miniconda3/conda-bld/ruamel.yaml.clib_1762530094352/work
+scipy==1.15.3
+semver @ file:///C:/miniconda3/conda-bld/semver_1761903258788/work
+shellingham @ file:///C:/miniconda3/conda-bld/shellingham_1761912226126/work
+six==1.17.0
+sniffio==1.3.1
+starlette==1.7.0
+sympy==1.14.0
+tomli @ file:///C:/Users/task_176829653256119/croot/tomli_1768296653758/work
+tomli_w @ file:///croot/tomli-w_1738351312774/work
+tomlkit @ file:///C:/miniconda3/conda-bld/tomlkit_1762896658254/work
+torch==2.11.0+cu128
+torchvision==0.26.0+cu128
+tqdm==4.67.3
+truststore==0.10.1
+typer==0.20.0
+typer-slim==0.20.0
+typing-inspection @ file:///C:/miniconda3/conda-bld/typing-inspection_1760614192776/work
+typing_extensions @ file:///C:/b/abs_ecq8gc0vbm/croot/typing_extensions_1756281142218/work
+# Editable install with no version control (ultralytics==8.4.69)
+-e c:\users\ll\desktop\yolov8-visual-recognition-main\ultralytics-main\ultralytics-main
+ultralytics-thop==2.0.20
+urllib3==2.6.3
+uvicorn==0.54.0
+Werkzeug==3.1.8
+win_inet_pton @ file:///C:/miniconda3/conda-bld/win_inet_pton_1761746276406/work
+zipp @ file:///C:/miniconda3/conda-bld/zipp_1763977937192/work
+zstandard @ file:///C:/miniconda3/conda-bld/zstandard_1758189088470/work
+
+==============================================================================
+# 1b. base python 版本
+==============================================================================
+Python 3.10.20
+
+==============================================================================
+# 2. .vendor（平台运行时额外依赖，PYTHONPATH 注入）
+# 路径: C:\Users\ll\Desktop\HKC_Data_Platform\.vendor
+# 平台本体只需要 FastAPI/Jinja2/numpy/pyarrow 等，不含 torch
+==============================================================================
+# 共 8 个包
+
+annotated-doc==0.0.5
+fastapi==0.143.0
+opentelemetry-api==1.45.1
+pyarrow==25.0.1
+python-multipart==0.0.32
+sniffio==1.3.1
+starlette==1.7.0
+uvicorn==0.54.0
+
+==============================================================================
+# 3. .deps_lerobot（lerobot 训练/推理依赖，约 1.1GB）
+# 路径: C:\Users\ll\Desktop\HKC_Data_Platform\.deps_lerobot
+# 注意：torch/torchvision 由 envs/yolov8n 提供，这里不包含
+==============================================================================
+# 共 50 个包
+
+attrs==26.1.0
+av==17.1.0
+cachebox==6.2.8
+cffi==2.1.1
+cloudpickle==3.1.2
+datasets==3.6.0
+deepdiff==9.1.0
+diffusers==0.41.0
+dill==0.4.1
+draccus==0.10.0
+easydict==1.13
+einops==0.9.0.dev0
+future==1.0.0
+glfw==2.10.2
+gym-pusht==0.1.8
+gymnasium==1.4.0
+h11==0.16.0
+httpcore2==2.13.1
+httpx2==2.13.1
+huggingface_hub==2.2.0
+ImageIO==2.38.1
+imageio-ffmpeg==0.6.0
+jsonlines==4.0.0
+llvmlite==0.50.0
+mergedeep==1.3.4
+mujoco==3.15.0
+multiprocess==0.70.11
+mypy_extensions==1.1.0
+numba==0.68.0
+orderly-set==5.5.0
+pandas==2.3.3
+pandas==3.0.6
+pyarrow==25.0.1
+pycparser==3.11
+pygame==2.6.1
+pymunk==6.11.1
+PyOpenGL==3.1.10
+PyOpenGL-accelerate==3.1.10
+pyserial==3.5
+pytz==2026.5
+robosuite==1.4.1
+robosuite==1.5.2
+safetensors==0.8.0
+shapely==2.1.2
+termcolor==3.3.0
+tqdm==4.70.1
+truststore==0.10.4
+typing-inspect==0.9.0
+xxhash==4.0.1
+yaml-include==1.0.0
+
+==============================================================================
+# 4. .deps_libero（MuJoCo + robosuite 仿真依赖，约 600MB）
+# 路径: C:\Users\ll\Desktop\HKC_Data_Platform\.deps_libero
+# MUJOCO_GL：Windows 用 wgl，Linux 用 egl
+==============================================================================
+# 共 2 个包
+
+mujoco==2.3.5
+robosuite==1.4.1
+
+==============================================================================
+# 5. .wheels 离线 wheel 缓存（84MB，重建环境的关键资产，建议备份）
+==============================================================================
+# 共 22 个文件
+
+# attrs-26.1.0-py3-none-any.whl   (0.06 MB)
+# av-17.1.0-cp310-cp310-win_amd64.whl   (26.82 MB)
+# cffi-2.1.1-cp310-cp310-win_amd64.whl   (0.18 MB)
+# diffusers-0.41.0-py3-none-any.whl   (5.78 MB)
+# dill-0.4.1-py3-none-any.whl   (0.11 MB)
+# einops-0.9.0.dev0-py3-none-any.whl   (0.06 MB)
+# gym_pusht-0.1.8-py3-none-any.whl   (0.02 MB)
+# gymnasium-1.4.0-py3-none-any.whl   (0.45 MB)
+# h11-0.16.0-py3-none-any.whl   (0.04 MB)
+# httpcore2-2.13.1-py3-none-any.whl   (0.08 MB)
+# imageio-2.38.1-py3-none-any.whl   (0.31 MB)
+# jsonlines-4.0.0-py3-none-any.whl   (0.01 MB)
+# multiprocess-0.70.11-py3-none-any.whl   (0.09 MB)
+# pandas-2.3.3-cp310-cp310-win_amd64.whl   (10.82 MB)
+# pyarrow-25.0.1-cp310-cp310-win_amd64.whl   (26.56 MB)
+# pygame-2.6.1-cp310-cp310-win_amd64.whl   (10.13 MB)
+# pymunk-7.3.1-cp310-cp310-win_amd64.whl   (0.35 MB)
+# pytz-2026.5-py2.py3-none-any.whl   (0.48 MB)
+# shapely-2.1.2-cp310-cp310-win_amd64.whl   (1.64 MB)
+# truststore-0.10.4-py3-none-any.whl   (0.02 MB)
+# xxhash-4.0.1-cp310-cp310-win_amd64.whl   (0.04 MB)
+# yaml_include-1.0.0-py3-none-any.whl   (0.00 MB)
+
+==============================================================================
+# 6. 服务器训练环境 /home/z123/miniconda3/envs/lerobot（关键子集）
+#    注意：我们为 X-VLA 补装了 transformers / tokenizers / safetensors
+==============================================================================
+# Python: 3.10.18   OS: Ubuntu 22.04.5 LTS
+# GPU: NVIDIA GeForce RTX 4090 D 24GB / driver 570.211.01 / CUDA 12.8
+# lerobot 0.4.4 要求 transformers>=4.57.1,<5.0.0（实装 4.57.1 + tokenizers 0.22.1）
+
+torch==2.10.0+cu128
+torchvision==0.25.0+cu128
+transformers==4.57.1
+tokenizers==0.22.1
+safetensors==0.6.2
+accelerate==1.14.0
+lerobot==0.4.4
+einops==0.8.2
+av==15.1.0
+diffusers==0.35.2
+numpy==2.2.6
+pandas==2.3.3
+pyarrow==25.0.0
+datasets==4.8.5
+huggingface_hub==0.35.3

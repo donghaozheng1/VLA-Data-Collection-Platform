@@ -1,0 +1,63 @@
+# ============================================================
+# HKC_Data_Platform .gitignore
+# 原则：源码入库；私有依赖/大数据/缓存/凭据 全部排除
+# 依赖清单见 requirements-freeze.txt（可据此重建环境）
+# ============================================================
+
+# ---- 私有依赖（pip 解压出来的库，可重建，约 1.9GB）----
+.deps_lerobot/
+.deps_libero/
+.vendor/
+.wheels/
+.venv_lerobot/
+__pycache__/
+*.py[cod]
+.tmp_pip/
+
+# ---- 大数据 / 缓存 / 中间产物（可再生，约 15GB）----
+storage/exports/
+storage/hf_cache/
+storage/xvla/
+storage/libero/
+storage/zhiyan_urdf/
+storage/sim_runs/
+storage/eval_runs/
+storage/pretrained/
+storage/sessions/
+storage/_docs_back/
+storage/remote_qc_cache/
+storage/datasets/
+storage/models/
+storage/train_runs/
+
+# ---- 压缩包/原始数据（体积大，单独备份）----
+*.zip
+*.7z
+zhiyan_dataset/
+
+# ---- 敏感凭据（绝不入库！）----
+storage/ssh/
+storage/remote.json
+storage/remote_qc.json
+storage/vlm_config.json
+*.pem
+*.key
+
+# ---- 数据库（二进制且频繁变化，单独备份；schema 见 docs/db-schema.sql）----
+storage/platform.db
+storage/platform.db-wal
+storage/platform.db-shm
+
+# ---- 运行时/日志 ----
+*.log
+*.log.done
+storage/reports/qc_*.json
+.DS_Store
+Thumbs.db
+
+# ---- ��װ��ʱĿ¼��Ȩ�����ޣ��ҿ��ؽ���----
+storage/.work/
+storage/.tmp/
+
+# ---- һ���Ե���̽��ű�����ѡ����������ɾ��������----
+_*.py

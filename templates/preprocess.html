@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block page_title %}数据预处理{% endblock %}
+{% block content %}
+<div class="flex mb-12">
+    <div><span class="text-muted">🔧 按规则筛出 episode 子集，并真实写出一个新的 LeRobot v2.1 数据集（parquet 重编号 + 视频拷贝 + episodes_stats）</span></div>
+</div>
+
+<div class="card">
+    <h3>新建预处理任务</h3>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">数据集</label>
+            <select id="dsSel" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;min-width:220px;"></select>
+        </div>
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">规则</label>
+            <select id="ruleSel" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;">
+                <option value="qc_pass">只保留最近一次质检通过的</option>
+                <option value="drop_constant">剔除 action 全程不变的</option>
+                <option value="success_only">只保留有成功标记的</option>
+                <option value="all">全部保留</option>
+            </select>
+        </div>
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">输出名称</label>
+            <input id="outName" placeholder="留空自动命名" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;">
+        </div>
+        <button class="btn btn-primary" onclick="doPreprocess()">开始预处理</button>
+    </div>
+    <div id="preBarWrap" style="display:none;background:#e9edf4;border-radius:6px;height:8px;margin-top:12px;"><div id="preBar" style="background:#2b7de9;height:8px;border-radius:6px;width:2%;"></div></div>
+    <div id="preMsg" style="font-size:13px;color:#666;margin-top:8px;"></div>
+</div>
+
+<div class="card">
+    <div style="font-size:15px;font-weight:700;color:#1a3c5e;margin-bottom:6px;">🛠 修正类预处理（会改帧）</div>
+    <div class="text-muted" style="margin-bottom:12px;">
+        对质检发现的坏样本做真实修复：剔除 NaN/重复时间戳帧、时间戳对齐、按保留帧重建视频（使行数==帧数）、
+        丢弃视频缺失/损坏的 episode、跨 episode 去重。修复结果登记为<b>新数据集</b>并记录血缘。
+    </div>
+    <div id="opBox" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px;"></div>
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
+        <label style="font-size:13px;"><input type="checkbox" id="resampleChk"> 额外启用重采样（线性插值补回声明长度，会生成中间帧）</label>
+        <button class="btn btn-primary" onclick="doRepair()">执行修复（用上方选中的数据集）</button>
+    </div>
+    <div id="repBarWrap" style="display:none;background:#e9edf4;border-radius:6px;height:8px;margin-top:12px;"><div id="repBar" style="background:#2b7de9;height:8px;border-radius:6px;width:2%;"></div></div>
+    <div id="repMsg" style="font-size:13px;color:#666;margin-top:8px;"></div>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">📦 预处理产物（可直接下载）</h3>
+        <button class="btn btn-sm" style="background:#f0f0f0;" onclick="loadArtifacts()">刷新</button>
+    </div>
+    <table class="table">
+        <tr><th>ID</th><th>文件</th><th>大小</th><th>时间</th><th>操作</th></tr>
+        <tbody id="artBody"><tr><td colspan="5" style="text-align:center;color:#999;padding:20px;">加载中…</td></tr></tbody>
+    </table>
+</div>
+
+<div class="card">
+    <h3>⚙️ 任务记录</h3>
+    <table class="table">
+        <tr><th>ID</th><th>类型</th><th>状态</th><th>进度</th><th>消息</th><th>创建时间</th><th>操作</th></tr>
+        <tbody id="jobBody"></tbody>
+    </table>
+</div>
+
+<script>
+async function loadDatasets() {
+    const ds = await API.get('/api/datasets');
+    document.getElementById('dsSel').innerHTML = ds.map((d) =>
+        `<option value="${d.id}">${d.name}（${d.total_episodes} 条）</option>`).join('');
+}
+
+async function doPreprocess() {
+    const dataset_id = parseInt(document.getElementById('dsSel').value, 10);
+    if (!dataset_id) return alert('请先接入一个数据集');
+    const payload = {
+        dataset_id,
+        rule: document.getElementById('ruleSel').value,
+        name: document.getElementById('outName').value.trim() || undefined,
+    };
+    const job = await runJob('preprocess', payload, { barId: 'preBar', msgId: 'preMsg' });
+    if (job.status === 'succeeded') {
+        const r = job.result || {};
+        setMsg('preMsg', `完成：保留 ${r.kept} / 丢弃 ${r.dropped} → ${r.zip}`, 'ok');
+        await Promise.all([loadArtifacts(), renderJobs('jobBody', 10)]);
+    }
+}
+
+async function loadArtifacts() {
+    const rows = await API.get('/api/artifacts?limit=20');
+    const body = document.getElementById('artBody');
+    if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;padding:20px;">还没有产物</td></tr>';
+        return;
+    }
+    body.innerHTML = rows.map((a) => `<tr>
+        <td>${a.id}</td>
+        <td style="font-size:13px;">${a.path.split('\\').pop()}</td>
+        <td>${fmtBytes(a.bytes)}</td>
+        <td style="font-size:12px;color:#999;">${a.created_at}</td>
+        <td><a class="btn btn-primary btn-sm" href="/api/artifacts/${a.id}/download">下载</a></td>
+      </tr>`).join('');
+}
+
+async function loadRepairOps() {
+    const data = await API.get('/api/repair/ops');
+    document.getElementById('opBox').innerHTML = data.ops.map((op) => `
+        <label style="font-size:13px;background:#f7f9fc;padding:6px 10px;border-radius:4px;">
+            <input type="checkbox" class="repairOp" value="${op.key}" ${op.default ? 'checked' : ''}>
+            ${op.key}
+        </label>`).join('');
+}
+
+async function doRepair() {
+    const dataset_id = parseInt(document.getElementById('dsSel').value, 10);
+    if (!dataset_id) return alert('请先在上方选一个数据集');
+    const ops = [...document.querySelectorAll('.repairOp:checked')].map((el) => el.value);
+    if (document.getElementById('resampleChk').checked) ops.push('resample');
+    if (!ops.length) return alert('至少选一个修复操作');
+    const job = await runJob('repair', { dataset_id, ops }, { barId: 'repBar', msgId: 'repMsg' });
+    if (job.status === 'succeeded') {
+        const r = job.result || {};
+        setMsg('repMsg', `完成：${r.episodes_in} → ${r.episodes_out} 条，删 ${r.frames_dropped} 帧，`
+            + `重建视频 ${r.videos_rebuilt} 个，丢弃 ${(r.dropped_episodes || []).length} 条`
+            + `（新数据集 #${r.derived_dataset_id}）`, 'ok');
+        await Promise.all([loadArtifacts(), renderJobs('jobBody', 10)]);
+    }
+}
+
+loadDatasets();
+loadArtifacts();
+loadRepairOps();
+renderJobs('jobBody', 10);
+</script>
+{% endblock %}

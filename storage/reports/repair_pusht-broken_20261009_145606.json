@@ -1,0 +1,70 @@
+{
+  "name": "pusht-broken_fixed",
+  "path": "C:\\Users\\ll\\Desktop\\HKC_Data_Platform\\storage\\exports\\pusht-broken_fixed",
+  "ops": [
+    "drop_broken",
+    "drop_invalid",
+    "dedup_ts",
+    "align_ts",
+    "sync_video"
+  ],
+  "op_labels": [
+    "丢弃视频缺失/损坏的 episode（不可修）",
+    "剔除 NaN/Inf 帧",
+    "剔除重复/回退时间戳的帧",
+    "时间戳对齐到 1/fps 均匀网格（不改帧数）",
+    "按保留帧重建视频，使行数==帧数"
+  ],
+  "episodes_in": 5,
+  "episodes_out": 3,
+  "frames_out": 451,
+  "bytes": 157924,
+  "fps": 10.0,
+  "dropped_episodes": [
+    {
+      "episode_index": 1,
+      "reason": "视频缺失"
+    },
+    {
+      "episode_index": 3,
+      "reason": "视频损坏不可解码"
+    }
+  ],
+  "per_episode": [
+    {
+      "episode_index": 0,
+      "new_index": 0,
+      "rows_before": 161,
+      "rows_after": 161,
+      "dropped_frames": 0,
+      "resampled": false,
+      "video_frames_before": 161,
+      "video_frames_after": 161,
+      "video_short": false
+    },
+    {
+      "episode_index": 2,
+      "new_index": 1,
+      "rows_before": 131,
+      "rows_after": 131,
+      "dropped_frames": 0,
+      "resampled": false,
+      "video_frames_before": 141,
+      "video_frames_after": 131,
+      "video_short": false
+    },
+    {
+      "episode_index": 4,
+      "new_index": 2,
+      "rows_before": 159,
+      "rows_after": 159,
+      "dropped_frames": 0,
+      "resampled": false,
+      "video_frames_before": 159,
+      "video_frames_after": 159,
+      "video_short": false
+    }
+  ],
+  "frames_dropped": 0,
+  "videos_rebuilt": 3
+}

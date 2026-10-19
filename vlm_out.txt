@@ -1,0 +1,130 @@
+临时 storage：C:\Users\ll\Desktop\HKC_Data_Platform\storage\_vlm_selftest
+
+[1] 抽帧与拼图
+  [PASS] 抽到图
+  [PASS] 拼图尺寸合理
+  [PASS] 首帧与末帧都在采样里
+  [PASS] 内容指纹完整
+  [PASS] 默认抽 6 格
+
+[2] 多相机（2 路相机 → 2 行）
+  [PASS] 两路相机都被采到
+  [PASS] 每路至少 2 帧
+
+[3] 后端探活
+  [PASS] 探活可达
+  [PASS] 找到配置里的模型
+
+[4] 全合规 → 不该误报
+  [PASS] 没有 error/warning 判定
+  [PASS] 带出场景描述（可回填语言指令）
+
+[5] 全不合规 → 问题清单要命中，且是 warning 不是 error
+  [PASS] 任务完成被判不合规
+  [PASS] 动作成败被判不合规
+  [PASS] 有人经过被判不合规
+  [PASS] 人手介入被判不合规
+  [PASS] 开放世界事件被判不合规
+  [PASS] 描述判定为 fail
+  [PASS] VLM 判定绝不产生 error（打回权限不交给模型）
+  [PASS] 不合规判定只落在 warning/info
+  [PASS] 正反一致时不算「不一致」
+
+[6] 正反问不一致 → 降级为待人工确认，不误报
+  [PASS] 出现正反不一致
+  [PASS] 不一致判为 info
+
+[7] 模型输出无法解析 → 走「未取到回答」兜底
+  [PASS] 出现未取到回答
+
+[8] 后端不可用 → 降级为 warning，绝不抛异常
+  [PASS] 没有抛异常
+  [PASS] 给出服务不可用告警
+
+[9] 缓存：同一内容第二次不再调 VLM
+  [PASS] 第一次不是缓存
+  [PASS] 第二次命中缓存
+  [PASS] 缓存已入库
+
+[10] 配置改了缓存要失效
+  [PASS] 指纹随配置变化
+
+[11] 两种模式可以单独跑
+  [PASS] describe 模式不产生 checklist 规则
+  [PASS] checklist 模式不产生描述判定
+
+[12] 非视觉数据集（无 mp4、无内嵌图像）→ info 提示，不报错
+  [PASS] 给出无可检视觉的 info
+
+[13] 配置读写往返
+  [PASS] 配置能存下来
+  [PASS] 问题清单没被改掉
+
+[14] 端到端：真实 pipeline.qc 处理器 + VLM（全部落在临时库）
+  [PASS] 质检返回了 run_id
+  [PASS] summary 带 VLM 统计
+  [PASS] VLM 统计里有模型名
+  [PASS] VLM 结论已落进 qc_findings
+  [PASS] VLM 结论不产生 error（不会误触发打回重采）
+  [PASS] 没有出现服务不可用（说明后端参数确实传到了）
+  [PASS] 质检报告文件已写出
+  [PASS] 报告里带 VLM 逐问回答与描述
+
+[15] 不带 vlm 的质检应完全不受影响（回归）
+  [PASS] 默认不跑 VLM
+  [PASS] 默认质检不产生 VLM 结论
+
+[16] 后端全程不可用时：任务不能假装成功（防「看着完成、其实没生效」）
+  [PASS] 任务本身仍然完成（结构质检不受影响）
+  [PASS] 标出 VLM 未生效 effective=False
+  [PASS] 不可用条数 = 检查条数
+  [PASS] 不能把「服务不可用」算成可疑 flagged=0
+  [PASS] 给出显式告警文案
+  [PASS] 每条都留下了服务不可用的记录
+
+[17] 任务描述必须进提示词（实测不喂任务，模型会把画面臆测成别的任务）
+  [PASS] 能从 episodes.jsonl 取到任务描述
+  [PASS] 提示词里含任务描述
+  [PASS] 提示词里要求以该任务为准
+  [PASS] 没有任务描述时明确说明
+  [PASS] 描述式提示词也带上任务
+
+[18] 布尔归一化（实测模型会把 true 返回成字符串 "true"）
+  [PASS] _as_bool("true") 为 True
+  [PASS] _as_bool("false") 为 False
+  [PASS] _as_bool(True) 为 True
+  [PASS] _as_bool(1) 为 True
+  [PASS] _as_bool("不确定") 为 None
+  [PASS] 字符串 "false" 能触发自相矛盾告警
+  [PASS] describe 里 task_completed 被归一成 bool
+
+[19] 跨模式矛盾：判别式说没完成、描述式说 pass → 必须标出来
+  [PASS] 识别出两种模式结论矛盾
+  [PASS] 矛盾结论是可追溯的
+  [PASS] 矛盾结论带上实测值
+
+[20] 默认清单：语义级问题，且 expect=no 的反向问法真的要能判不合规
+  [PASS] 共 5 项
+  [PASS] 覆盖「任务是否执行完」
+  [PASS] 覆盖「动作成功/失败判定」
+  [PASS] 覆盖「人手介入操作」
+  [PASS] 覆盖「旁人经过」
+  [PASS] 覆盖「开放世界事件检测」
+  [PASS] 「人手介入」与「旁人经过」是分开的两项
+  [PASS] 「人手介入」问的是接触操作，不是路过
+  [PASS] 「旁人经过」明确排除接触
+  [PASS] 每项都有正反问法与 expect
+  [PASS] 两种 expect 都用到（yes 与 no）
+  [PASS] 没有任何一项是 error 级别（VLM 永不触发打回）
+  [PASS] 有 expect=no 的项
+  [PASS] expect=no 的项也生成正反两问
+  [PASS] 正向问的是「有没有出问题」这件事
+  [PASS] 答 yes 被判不合规
+  [PASS] finding 级别 = 该项配置的级别
+  [PASS] expect 记录为 no
+  [PASS] 理由被带进 detail
+  [PASS] 答 no 判合规、不误报
+  [PASS] 正反不一致 → 标为待人工确认
+
+==================================================================
+通过 86 / 86

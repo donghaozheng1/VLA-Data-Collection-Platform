@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block page_title %}系统管理<script>
+async function loadPlan() {
+    const p = await API.get('/api/storage/plan');
+    document.getElementById('stBody').innerHTML = p.plan_summary.length
+        ? p.plan_summary.map((s) => `<tr>
+            <td><span class="tag">${s.kind}</span></td><td>${s.items}</td><td>${s.files}</td>
+            <td>${fmtBytes(s.bytes)}</td></tr>`).join('')
+        : '<tr><td colspan="4" style="text-align:center;color:#52c41a;padding:18px;">没有可回收项</td></tr>';
+    document.getElementById('stKept').innerHTML =
+        `<div class="text-muted">合计可回收 <b>${fmtBytes(p.reclaimable_bytes)}</b>；`
+        + `受保护不可删 <b>${p.kept.length}</b> 项</div>`
+        + (p.kept.length ? `<table class="table" style="margin-top:6px;">
+            <tr><th>目录</th><th>大小</th><th>不可删原因</th></tr>
+            ${p.kept.map((k) => `<tr>
+                <td style="font-size:12px;">${k.path.split('\\').pop()}</td>
+                <td>${fmtBytes(k.bytes)}</td>
+                <td style="font-size:12px;color:#8896ab;">${k.reason}</td></tr>`).join('')}
+            </table>` : '');
+    setMsg('stMsg', `可回收 ${fmtBytes(p.reclaimable_bytes)} / ${p.reclaimable_files} 个文件`, 'ok');
+}
+
+async function doCleanup(dry) {
+    if (!dry && !confirm('确认执行清理？会删除暂存导出目录（同名 zip 保留）与过期中间产物。')) return;
+    const r = await API.post('/api/storage/cleanup', { dry_run: dry });
+    setMsg('stMsg', `${dry ? '预览' : '已执行'}：${r.targets} 项 / ${r.deleted_files} 个文件 / `
+        + `释放 ${r.freed_mb} MB` + (r.errors.length ? ` / ${r.errors.length} 个失败` : ''),
+        dry ? '' : 'ok');
+    if (!dry) await loadPlan();
+}
+
+async function loadPolicy() {
+    const p = await API.get('/api/storage/policy');
+    document.getElementById('polEnabled').checked = !!p.enabled;
+    document.getElementById('polThreshold').value = p.threshold_mb;
+    document.getElementById('polInterval').value = p.interval_s;
+    const all = ['export_dir_with_zip', 'orphan_report', 'stale_session_frames'];
+    document.getElementById('polKinds').innerHTML = '类别：' + all.map((k) =>
+        `<label style="margin-right:8px;"><input type="checkbox" class="polKind" value="${k}"
+            ${p.kinds.includes(k) ? 'checked' : ''}> ${k}</label>`).join('');
+    document.getElementById('polStatus').textContent =
+        `上次检查 ${p.last_check || '-'}（${p.last_action || '-'}）`
+        + (p.last_result ? `　可回收 ${p.last_result.reclaimable_mb}MB / 释放 ${p.last_result.freed_mb || 0}MB` : '')
+        + `　调度线程 ${p.scheduler && p.scheduler.thread_alive ? '运行中' : '未启动（随应用启动）'}`;
+}
+
+async function savePolicy() {
+    const kinds = [...document.querySelectorAll('.polKind:checked')].map((el) => el.value);
+    try {
+        await API.post('/api/storage/policy', {
+            enabled: document.getElementById('polEnabled').checked,
+            threshold_mb: parseFloat(document.getElementById('polThreshold').value),
+            interval_s: parseInt(document.getElementById('polInterval').value, 10),
+            kinds,
+        });
+        setMsg('stMsg', '策略已保存（' + (kinds.length ? kinds.join('、') : '未选类别')
+            + '）', 'ok');
+        await loadPolicy();
+    } catch (err) { setMsg('stMsg', '保存失败：' + err.message, 'error'); }
+}
+
+async function checkNow() {
+    const r = await API.post('/api/storage/check', {});
+    setMsg('stMsg', `检查完成：可回收 ${r.reclaimable_mb}MB，决定 ${r.decision}`
+        + (r.result ? `，释放 ${r.result.freed_mb}MB` : ''), 'ok');
+    await Promise.all([loadPolicy(), loadPlan()]);
+}
+
+loadPolicy();
+loadPlan();
+</script>
+
+{% endblock %}
+{% block content %}
+<div class="flex mb-12">
+    <div><span class="text-muted">⚙️ 真实运行状态：存储用量、数据规模、推理服务、最近告警（不是写死的列表）</span></div>
+    <a class="btn btn-primary" href="/system">刷新</a>
+</div>
+
+<div class="card">
+    <h3>平台信息</h3>
+    <table class="table">
+        <tr><td style="width:180px;">Python</td><td>{{ platform.python }}</td></tr>
+        <tr><td>操作系统</td><td>{{ platform.os }}</td></tr>
+        <tr><td>数据库</td><td style="font-size:13px;">{{ platform.db_path }}
+            <span class="text-muted">（{{ '%.1f'|format(platform.db_bytes / 1024 / 1024) }} MB）</span></td></tr>
+        <tr><td>存储根目录</td><td style="font-size:13px;">{{ platform.storage_root }}</td></tr>
+    </table>
+</div>
+
+<div class="card">
+    <h3>存储用量</h3>
+    <table class="table">
+        <tr><th>目录</th><th>文件数</th><th>占用</th></tr>
+        {% for name, v in storage.items() %}
+        <tr>
+            <td><span class="tag">{{ name }}</span></td>
+            <td>{{ v.files }}</td>
+            <td>{{ '%.1f'|format(v.bytes / 1024 / 1024) }} MB</td>
+        </tr>
+        {% endfor %}
+        <tr style="font-weight:700;">
+            <td>合计</td><td></td><td>{{ '%.1f'|format(storage_total / 1024 / 1024) }} MB</td>
+        </tr>
+    </table>
+</div>
+
+<div class="card">
+    <h3>数据规模</h3>
+    <table class="table">
+        <tr><th>表 / 对象</th><th>数量</th></tr>
+        {% for name, c in counts.items() %}
+        <tr><td><code style="background:#f5f5f5;padding:1px 6px;border-radius:3px;">{{ name }}</code></td><td>{{ c }}</td></tr>
+        {% endfor %}
+    </table>
+</div>
+
+<div class="card">
+    <h3>推理服务</h3>
+    {% if infer.running %}
+    <table class="table">
+        <tr><td style="width:180px;">状态</td><td><span class="status-badge status-done">运行中</span></td></tr>
+        <tr><td>设备</td><td><strong>{{ infer.device }}</strong>　CUDA {{ infer.cuda }}</td></tr>
+        <tr><td>torch / ultralytics</td><td>{{ infer.torch }} / {{ infer.ultralytics }}</td></tr>
+        <tr><td>默认模型</td><td>{{ infer.default_model }}　<span class="text-muted">已加载 {{ (infer.loaded_models or [])|length }} 个</span></td></tr>
+        <tr><td>扫描目录</td><td style="font-size:12px;">{{ (infer.scan_dirs or [])|join('　') }}</td></tr>
+    </table>
+    {% else %}
+    <div style="font-size:13px;color:#ff4d4f;">未运行：{{ infer.error }}</div>
+    <div class="text-muted" style="margin-top:8px;">
+        推理服务跑在另一个 Python 环境（torch 可用的那个），用
+        <code style="background:#f5f5f5;padding:1px 6px;border-radius:3px;">tools/infer_service.py</code> 启动；
+        详见「模型管理」页给出的命令。
+    </div>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">存储清理（先看计划，再执行）</h3>
+        <div>
+            <button class="btn btn-sm" style="background:#f0f0f0;" onclick="loadPlan()">重新算账</button>
+            <button class="btn btn-sm" style="background:#f0f0f0;" onclick="doCleanup(true)">预览</button>
+            <button class="btn btn-sm" style="background:#fff1f0;color:#cf1322;" onclick="doCleanup(false)">执行清理</button>
+        </div>
+    </div>
+    <div class="text-muted" style="margin-bottom:10px;">
+        安全边界（写死在代码里）：只动 <code>storage/</code> 下的 exports / reports / sessions / testdata；
+        <b>绝不碰 storage/datasets</b>；<b>不删任何被数据集登记引用的目录</b>；
+        导出目录只有在<b>同名 zip 已存在</b>时才算可回收（zip 是交付物，目录只是暂存副本）。
+    </div>
+    <div style="background:#f7f9fc;border-radius:6px;padding:10px 12px;margin-bottom:10px;font-size:13px;">
+        <b>自动清理策略</b>（后台每 N 秒检查一次，<b>默认关闭</b> —— 无人值守自动删文件必须由人显式打开）
+        <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-top:8px;">
+            <label><input type="checkbox" id="polEnabled"> 启用</label>
+            <div><label style="font-size:12px;display:block;">阈值 (MB)</label>
+                <input id="polThreshold" type="number" value="200" style="width:90px;padding:4px 8px;border:1px solid #d9d9d9;border-radius:4px;"></div>
+            <div><label style="font-size:12px;display:block;">间隔 (秒)</label>
+                <input id="polInterval" type="number" value="300" style="width:90px;padding:4px 8px;border:1px solid #d9d9d9;border-radius:4px;"></div>
+            <div id="polKinds" style="font-size:12px;"></div>
+            <button class="btn btn-sm btn-primary" onclick="savePolicy()">保存策略</button>
+            <button class="btn btn-sm" style="background:#f0f0f0;" onclick="checkNow()">立即检查</button>
+        </div>
+        <div id="polStatus" class="text-muted" style="margin-top:6px;"></div>
+    </div>
+    <div id="stMsg" style="font-size:13px;color:#666;margin-bottom:8px;"></div>
+    <table class="table">
+        <tr><th>类别</th><th>项数</th><th>文件数</th><th>可回收</th></tr>
+        <tbody id="stBody"><tr><td colspan="4" style="text-align:center;color:#999;padding:18px;">计算中…</td></tr></tbody>
+    </table>
+    <div id="stKept" style="margin-top:10px;"></div>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">最近操作与告警（真实审计）</h3>
+        <span class="text-muted">
+            总计 {{ stats.total }} 条 ｜ ERROR {{ stats.error }} ｜ WARNING {{ stats.warning }} ｜ 今日 {{ stats.today }}
+        </span>
+    </div>
+    <table class="table">
+        <tr><th style="width:150px;">时间</th><th style="width:110px;">级别</th><th style="width:120px;">模块</th><th>内容</th></tr>
+        {% for l in alerts %}
+        <tr>
+            <td style="font-size:12px;color:#666;">{{ l.time }}</td>
+            <td><span class="status-badge
+                {% if l.level == 'ERROR' %}status-error{% elif l.level == 'WARNING' %}status-paused{% else %}status-done{% endif %}">{{ l.level }}</span></td>
+            <td><span class="tag">{{ l.module }}</span></td>
+            <td style="font-size:13px;">{{ l.message }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" style="text-align:center;color:#999;padding:18px;">还没有审计记录</td></tr>
+        {% endfor %}
+    </table>
+    <div class="text-muted" style="margin-top:8px;">完整日志见「系统日志」页（可按级别/模块筛选）。</div>
+</div>
+{% endblock %}

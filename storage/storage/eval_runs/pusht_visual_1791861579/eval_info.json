@@ -1,0 +1,21 @@
+{
+  "per_episode": [
+    {
+      "episode_ix": 0,
+      "sum_reward": 135.2650948536347,
+      "max_reward": 0.938748511500652,
+      "success": false,
+      "seed": 1000
+    }
+  ],
+  "aggregated": {
+    "avg_sum_reward": 135.2650948536347,
+    "avg_max_reward": 0.938748511500652,
+    "pc_success": 0.0,
+    "eval_s": 66.52364087104797,
+    "eval_ep_s": 66.52364087104797
+  },
+  "video_paths": [
+    "storage\\eval_runs\\pusht_visual_1791861579\\videos\\eval_episode_0.mp4"
+  ]
+}

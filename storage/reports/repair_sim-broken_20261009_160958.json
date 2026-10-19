@@ -1,0 +1,44 @@
+{
+  "name": "sim-broken_fixed",
+  "path": "C:\\Users\\ll\\Desktop\\HKC_Data_Platform\\storage\\exports\\sim-broken_fixed",
+  "ops": [
+    "dedup_ts",
+    "align_ts"
+  ],
+  "op_labels": [
+    "剔除重复/回退时间戳的帧",
+    "时间戳对齐到 1/fps 均匀网格（不改帧数）"
+  ],
+  "episodes_in": 2,
+  "episodes_out": 2,
+  "frames_out": 79,
+  "bytes": 48935,
+  "fps": 10.0,
+  "dropped_episodes": [],
+  "per_episode": [
+    {
+      "episode_index": 0,
+      "new_index": 0,
+      "rows_before": 40,
+      "rows_after": 40,
+      "dropped_frames": 0,
+      "resampled": false,
+      "video_frames_before": 40,
+      "video_frames_after": 40,
+      "video_short": false
+    },
+    {
+      "episode_index": 1,
+      "new_index": 1,
+      "rows_before": 40,
+      "rows_after": 39,
+      "dropped_frames": 1,
+      "resampled": false,
+      "video_frames_before": 40,
+      "video_frames_after": 39,
+      "video_short": false
+    }
+  ],
+  "frames_dropped": 1,
+  "videos_rebuilt": 2
+}

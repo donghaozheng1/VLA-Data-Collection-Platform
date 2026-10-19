@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block page_title %}设置{% endblock %}
+{% block content %}
+<div class="card" style="max-width:500px;">
+    <h3>🔑 修改密码</h3>
+    <form method="post" action="/auth/settings/change-password">
+        <div style="margin-bottom:12px;"><label>当前密码</label><input type="password" name="old_password" style="width:100%;padding:8px 12px;border:1px solid #d9d9d9;border-radius:4px;"></div>
+        <div style="margin-bottom:12px;"><label>新密码</label><input type="password" name="new_password" style="width:100%;padding:8px 12px;border:1px solid #d9d9d9;border-radius:4px;"></div>
+        <button type="submit" class="btn btn-primary">确认修改</button>
+        {% if error %}<div style="color:#ff4d4f;margin-top:8px;">{{ error }}</div>{% endif %}
+        {% if success %}<div style="color:#52c41a;margin-top:8px;">{{ success }}</div>{% endif %}
+    </form>
+</div>
+<div class="card" style="max-width:500px;margin-top:16px;">
+    <h3>👤 当前用户</h3>
+    <p>用户名: <strong>{{ user.username }}</strong></p>
+    <p class="text-muted">该Demo为静态演示，数据不持久化</p>
+</div>
+{% endblock %}

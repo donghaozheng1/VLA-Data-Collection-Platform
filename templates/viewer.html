@@ -1,0 +1,310 @@
+{% extends "base.html" %}
+{% block page_title %}数据浏览{% endblock %}
+{% block content %}
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">🎬 数据集浏览</h3>
+        <div style="display:flex;gap:8px;align-items:center;font-size:13px;color:#666;">
+            <span id="vFps"></span>
+        </div>
+    </div>
+    <div style="font-size:12px;color:#5a6b85;background:#fafafa;border-radius:5px;padding:8px 12px;margin-bottom:12px;line-height:1.9;">
+        用<b>逐帧播放</b>的方式看数据，而不是让它交给浏览器解码 ——
+        平台里的视频是 <code>mp4v</code>(MPEG-4 Part 2) 编码，<b>浏览器一律不支持</b>。
+        逐帧方式对<b>所有编码都有效</b>，不转码、不占额外磁盘。实测 1280×720 每帧约 29ms，
+        所以这里能实时播放。
+    </div>
+
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;">
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">数据集</label>
+            <select id="vDs" onchange="vLoadEpisodes()"
+                    style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;min-width:320px;">
+                {% for d in datasets %}
+                <option value="{{ d.id }}">{{ d.name }}（{{ d.total_episodes }} 条）</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">Episode</label>
+            <select id="vEp" onchange="vLoadEpisode()"
+                    style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;min-width:220px;"></select>
+        </div>
+        <div>
+            <label style="font-size:13px;display:block;margin-bottom:4px;">相机</label>
+            <select id="vCam" onchange="vLoadFrame(true)"
+                    style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;min-width:200px;"></select>
+        </div>
+        <button class="btn btn-sm" style="background:#f0f0f0;" onclick="vPrev()">◀ 上一条</button>
+        <button class="btn btn-sm" style="background:#f0f0f0;" onclick="vNext()">下一条 ▶</button>
+    </div>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;" id="vTitle">选择数据集与 episode</h3>
+        <span id="vCounter" style="font-size:13px;color:#8896ab;"></span>
+    </div>
+
+    <div style="display:flex;gap:18px;flex-wrap:wrap;">
+        <div style="flex:1 1 560px;min-width:320px;">
+            <div style="background:#111;border-radius:8px;min-height:260px;display:flex;
+                        align-items:center;justify-content:center;overflow:hidden;">
+                <img id="vFrame" alt="frame" style="max-width:100%;max-height:520px;display:block;">
+            </div>
+            <input type="range" id="vScrub" min="0" max="0" value="0" oninput="vScrubTo(this.value)"
+                   style="width:100%;margin-top:12px;">
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;">
+                <button class="btn btn-primary btn-sm" id="vPlayBtn" onclick="vTogglePlay()">▶ 播放</button>
+                <button class="btn btn-sm" style="background:#f0f0f0;" onclick="vStep(-1)">◀ 单帧</button>
+                <button class="btn btn-sm" style="background:#f0f0f0;" onclick="vStep(1)">单帧 ▶</button>
+                <label style="font-size:13px;color:#666;">
+                    速度
+                    <select id="vSpeed" onchange="vRestartTimer()"
+                            style="padding:4px 8px;border:1px solid #d9d9d9;border-radius:4px;">
+                        <option value="0.25">0.25×</option>
+                        <option value="0.5">0.5×</option>
+                        <option value="1" selected>1×</option>
+                        <option value="2">2×</option>
+                        <option value="4">4×</option>
+                    </select>
+                </label>
+                <label style="font-size:13px;color:#666;">
+                    <input type="checkbox" id="vLoop" checked> 循环
+                </label>
+                <span id="vLoad" style="font-size:12px;color:#8896ab;"></span>
+            </div>
+        </div>
+
+        <div style="flex:1 1 320px;min-width:280px;">
+            <div style="font-size:13px;font-weight:600;color:#5a6b85;margin-bottom:6px;">这条 episode 的问题</div>
+            <div id="vIssues" style="font-size:12.5px;line-height:1.85;color:#5a6b85;"></div>
+            <div id="vTask" style="font-size:12.5px;color:#8896ab;margin-top:10px;line-height:1.8;"></div>
+            <div style="margin-top:14px;padding-top:12px;border-top:1px dashed #e8e8e8;">
+                <div style="font-size:13px;font-weight:600;color:#5a6b85;margin-bottom:6px;">
+                    人工确认（用来校准模型判定）
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="btn btn-sm" style="background:#f6ffed;border:1px solid #b7eb8f;color:#389e0d;"
+                            onclick="vLabel('ok')">✔ 合格</button>
+                    <button class="btn btn-sm" style="background:#fff1f0;border:1px solid #ffccc7;color:#cf1322;"
+                            onclick="vLabel('bad')">✘ 不合格</button>
+                    <button class="btn btn-sm" style="background:#fafafa;" onclick="vLabel('skip')">跳过</button>
+                </div>
+                <div id="vLabelMsg" style="font-size:12px;color:#8896ab;margin-top:8px;line-height:1.7;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let V_EPS = [];
+let V_TOTAL = 0;
+let V_INDEX = 0;
+let V_PLAYING = false;
+let V_TIMER = null;
+let V_FPS = 10;
+let V_CAM = '';
+
+function vMsg(html, color) {
+    const el = document.getElementById('vLoad');
+    el.innerHTML = html || '';
+    el.style.color = color || '#8896ab';
+}
+
+async function vLoadEpisodes() {
+    const ds = document.getElementById('vDs').value;
+    V_PLAYING = false; vStopTimer();
+    document.getElementById('vPlayBtn').textContent = '▶ 播放';
+    if (!ds) return;
+    vMsg('加载中…');
+    let data;
+    try {
+        data = await API.get(`/api/viewer/episodes/${ds}`);
+    } catch (err) {
+        return vMsg('加载失败：' + err.message, '#ff4d4f');
+    }
+    V_EPS = data.episodes || [];
+    V_FPS = parseFloat(data.dataset.fps) || 10;
+    document.getElementById('vFps').textContent =
+        `fps ${V_FPS}　${data.dataset.total_episodes} 条 / ${data.dataset.total_frames} 帧`
+        + (data.run ? `　问题来自 run${data.run.id}` : '');
+    const badge = { drop: '✘', review: '!', keep: '✓' };
+    document.getElementById('vEp').innerHTML = V_EPS.map((e) =>
+        `<option value="${e.episode_index}">`
+        + `${e.episode_index}　${e.length || '?'}帧`
+        + `　${badge[e.suggest] || ''}`
+        + (e.errors ? ` err${e.errors}` : '') + (e.warnings ? ` warn${e.warnings}` : '')
+        + `</option>`).join('');
+    vMsg('');
+    vLoadEpisode();
+}
+
+async function vLoadEpisode(silent) {
+    const ds = document.getElementById('vDs').value;
+    const ep = document.getElementById('vEp').value;
+    if (!ds || ep === '') return;
+    vStopTimer();
+    if (!silent) vMsg('读取相机…');
+    let meta;
+    try {
+        meta = await API.get(`/api/episodes/${ds}/${ep}/frames`);
+    } catch (err) {
+        return vMsg('读取该 episode 失败：' + err.message, '#ff4d4f');
+    }
+    // 注意字段名：episode_meta 返回的是 **video_keys** / **rows**，
+    // 不是 camera_keys / frames（我一开始写错，导致多相机数据集显示"无视觉数据"）。
+    // image_keys 是给 LIBERO 那类内嵌图像数据集用的，有视频时优先用视频。
+    const vids = meta.video_keys || [];
+    const imgs = meta.image_keys || [];
+    const keys = vids.length ? vids : imgs;
+    document.getElementById('vCam').innerHTML = keys.length
+        ? keys.map((k) => `<option value="${k}">${k}${vids.length ? '' : '（内嵌图像）'}</option>`).join('')
+        : '<option value="">（无视觉数据）</option>';
+    V_CAM = document.getElementById('vCam').value;
+    V_TOTAL = parseInt(meta.rows, 10) || 0;
+    if (!V_TOTAL) {
+        vMsg('这条 episode 没有可播放的帧（rows=0）', '#faad14');
+    }
+
+    const rec = V_EPS.find((x) => String(x.episode_index) === String(ep)) || {};
+    document.getElementById('vTitle').innerHTML =
+        `episode ${ep}` + (rec.length ? `　<span style="font-size:13px;color:#8896ab;">${rec.length} 帧</span>` : '');
+    const badge = { drop: '<span class="status-badge status-error">建议排除</span>',
+                    review: '<span class="status-badge status-paused">待定</span>',
+                    keep: '<span class="status-badge status-done">干净</span>' };
+    document.getElementById('vIssues').innerHTML =
+        (badge[rec.suggest] || '') + '<br>'
+        + ((rec.issues || []).length
+            ? rec.issues.map((s) => `· ${s}`).join('<br>')
+            : '<span style="color:#52c41a;">质检没有报出问题</span>');
+    document.getElementById('vTask').innerHTML = rec.task_text
+        ? `任务描述：<b>${rec.task_text}</b>`
+        : '任务描述：<span style="color:#faad14;">（空 —— 模型和标注人都不知道任务是什么）</span>';
+    document.getElementById('vLabelMsg').textContent = '';
+
+    const scrub = document.getElementById('vScrub');
+    scrub.min = 0;
+    scrub.max = Math.max(0, V_TOTAL - 1);
+    V_INDEX = 0;
+    scrub.value = 0;
+    vMsg('');
+    vLoadFrame(true);
+}
+
+async function vLoadFrame(reset, target) {
+    const ds = document.getElementById('vDs').value;
+    const ep = document.getElementById('vEp').value;
+    if (!ds || ep === '' || !V_TOTAL) return;
+    const idx = (target === undefined) ? V_INDEX : target;
+    V_INDEX = Math.max(0, Math.min(V_TOTAL - 1, idx));
+    const img = document.getElementById('vFrame');
+    const url = `/api/episodes/${ds}/${ep}/frame?index=${V_INDEX}`
+        + `&max_size=720&key=${encodeURIComponent(V_CAM)}`;
+    const t0 = performance.now();
+    img.src = url;
+    document.getElementById('vScrub').value = V_INDEX;
+    document.getElementById('vCounter').textContent =
+        `第 ${V_INDEX + 1} / ${V_TOTAL} 帧　（${(V_INDEX / V_FPS).toFixed(2)}s）`;
+    img.onload = () => {
+        const ms = performance.now() - t0;
+        const h = img.naturalHeight, w = img.naturalWidth;
+        vMsg(`每帧 ${ms.toFixed(0)}ms　${w}×${h}`);
+    };
+    img.onerror = () => vMsg('这一帧读不出来（可能超出该相机的帧数）', '#faad14');
+}
+
+function vScrubTo(value) {
+    vStopTimer();
+    document.getElementById('vPlayBtn').textContent = '▶ 播放';
+    vLoadFrame(false, parseInt(value, 10));
+}
+
+function vStep(delta) {
+    vStopTimer();
+    V_PLAYING = false;
+    document.getElementById('vPlayBtn').textContent = '▶ 播放';
+    vLoadFrame(false, V_INDEX + delta);
+}
+
+function vTogglePlay() {
+    if (V_PLAYING) {
+        vStopTimer();
+        V_PLAYING = false;
+        document.getElementById('vPlayBtn').textContent = '▶ 播放';
+    } else {
+        if (!V_TOTAL) return;
+        V_PLAYING = true;
+        document.getElementById('vPlayBtn').textContent = '⏸ 暂停';
+        vRestartTimer();
+    }
+}
+
+function vRestartTimer() {
+    vStopTimer();
+    if (!V_PLAYING) return;
+    const speed = parseFloat(document.getElementById('vSpeed').value) || 1;
+    const interval = Math.max(30, 1000 / (V_FPS * speed));
+    V_TIMER = setInterval(() => {
+        if (V_INDEX + 1 >= V_TOTAL) {
+            if (document.getElementById('vLoop').checked) {
+                vLoadFrame(false, 0);
+            } else {
+                vStopTimer();
+                V_PLAYING = false;
+                document.getElementById('vPlayBtn').textContent = '▶ 播放';
+            }
+            return;
+        }
+        vLoadFrame(false, V_INDEX + 1);
+    }, interval);
+}
+
+function vStopTimer() {
+    if (V_TIMER) { clearInterval(V_TIMER); V_TIMER = null; }
+}
+
+function vPrev() {
+    const sel = document.getElementById('vEp');
+    if (sel.selectedIndex > 0) { sel.selectedIndex -= 1; vLoadEpisode(); }
+}
+
+function vNext() {
+    const sel = document.getElementById('vEp');
+    if (sel.selectedIndex < sel.options.length - 1) { sel.selectedIndex += 1; vLoadEpisode(); }
+}
+
+async function vLabel(verdict) {
+    const ds = document.getElementById('vDs').value;
+    const ep = document.getElementById('vEp').value;
+    if (!ds || ep === '') return;
+    const box = document.getElementById('vLabelMsg');
+    if (verdict === 'skip') { box.textContent = '已跳过（未记录）'; return; }
+    const success = verdict === 'ok' ? 1 : 0;
+    const rec = V_EPS.find((x) => String(x.episode_index) === String(ep)) || {};
+    try {
+        await API.put(`/api/annotations/${ds}/${ep}`, {
+            task_text: rec.task_text || null,
+            success: success,
+            note: `人工看视频确认：${verdict === 'ok' ? '合格' : '不合格'}`,
+        });
+        box.innerHTML = `已记录：<b>${verdict === 'ok' ? '合格' : '不合格'}</b>`
+            + `　（写在 annotations 的 success 位，导出时会进 <code>next.success</code>）`;
+        vNext();
+    } catch (err) {
+        box.innerHTML = `<span style="color:#ff4d4f;">记录失败：${esc(err.message)}</span>`;
+    }
+}
+
+document.addEventListener('keydown', (e) => {
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
+    if (e.key === ' ') { e.preventDefault(); vTogglePlay(); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); vStep(-1); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); vStep(1); }
+});
+
+vLoadEpisodes();
+</script>
+{% endblock %}

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block page_title %}数据定义{% endblock %}
+{% block content %}
+
+<!-- 顶部标题 -->
+<div class="card" style="padding:18px 24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+    <div>
+        <div style="font-size:17px;font-weight:700;color:#1a3c5e;">
+            📖 统一语义层 · 完整字段
+            <span style="font-size:12px;font-weight:400;color:#2b7de9;background:#eef3ff;padding:2px 10px;border-radius:12px;margin-left:8px;">跨本体数据互通的核心抽象</span>
+        </div>
+        <div class="text-muted" style="margin-top:6px;">剥离本体专属信息，只保留任务级抽象描述</div>
+    </div>
+    <div style="font-size:13px;color:#722ed1;background:#f9f0ff;padding:6px 14px;border-radius:16px;">
+        ⚡ 8个核心字段 + Episode结构
+    </div>
+</div>
+
+<!-- 8 个核心字段 -->
+<div class="card">
+    <table class="table">
+        <thead>
+            <tr>
+                <th style="width:15%;">字段</th>
+                <th style="width:47%;">说明</th>
+                <th style="width:38%;">举例</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for f in fields %}
+            <tr>
+                <td><strong>{{ f.name }}</strong></td>
+                <td>{{ f.desc }}</td>
+                <td style="color:#5a6b85;">{{ f.example }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Episode 文件结构 -->
+<div class="card">
+    <div style="font-size:15px;font-weight:700;color:#1a3c5e;margin-bottom:12px;">
+        📁 Episode 文件结构
+        <span style="font-size:12px;font-weight:400;color:#8896ab;background:#f0f2f5;padding:2px 10px;border-radius:12px;margin-left:8px;">结构化 + 非结构化 + 元信息</span>
+    </div>
+
+    <div style="background:#f7f9fc;border-radius:8px;padding:18px 22px;font-family:Consolas,Monaco,monospace;font-size:13.5px;line-height:2;color:#1a2b4c;border:1px solid #e9edf4;">
+        <div style="font-weight:700;">episode_0001/</div>
+        {% for ef in episode_files %}
+        <div>
+            &nbsp;&nbsp;├── <span style="color:#2b7de9;">{{ ef.name }}</span>
+            <span style="color:#8896ab;font-family:'Microsoft YaHei',sans-serif;">&nbsp;&nbsp;# {{ ef.desc }}</span>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div style="margin-top:14px;font-size:13px;color:#5a6b85;background:#fffbe6;border-left:3px solid #faad14;padding:10px 14px;border-radius:4px;">
+        💡 <strong>核心原则：</strong>结构化数据用 Parquet，非结构化数据用 MP4，元信息用 JSON。既紧凑，又便于训练时快速读取。
+    </div>
+</div>
+
+<!-- 核心价值 -->
+<div class="card" style="background:linear-gradient(135deg,#f0f7ff 0%,#f9f0ff 100%);border-left:4px solid #2b7de9;">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+        <div style="font-size:14px;font-weight:700;color:#1a3c5e;">
+            🎯 核心价值：把“本体专属”信息剥离，只保留“任务级”抽象描述
+        </div>
+        <div style="font-size:13px;color:#2b7de9;background:#fff;padding:6px 14px;border-radius:16px;border:1px solid #d6e4ff;">
+            让不同机器人采集的数据能被同一套模型理解
+        </div>
+    </div>
+</div>
+
+{% endblock %}

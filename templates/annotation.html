@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% block page_title %}数据标注{% endblock %}
+{% block content %}
+<div class="flex mb-12">
+    <div><span class="text-muted">✏️ VLA 的「L」与结果位：给 episode 写语言指令、标成功/失败。原始数据集只读，标注存在平台库里，导出时会写进 tasks.jsonl</span></div>
+    <div>
+        <select id="dsSel" style="padding:6px 10px;border:1px solid #d9d9d9;border-radius:4px;min-width:200px;"></select>
+        <button class="btn btn-primary" onclick="loadEpisodes()">加载</button>
+    </div>
+</div>
+
+<div class="card" id="workCard">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">👥 标注账号与工时</h3>
+        <div>
+            <input id="whoInput" placeholder="你的名字" value="admin"
+                   style="width:110px;padding:5px 8px;border:1px solid #d9d9d9;border-radius:4px;">
+            <button class="btn btn-sm btn-primary" onclick="workStart()">上工</button>
+            <button class="btn btn-sm" style="background:#f0f0f0;" onclick="workStop()">收工</button>
+            <button class="btn btn-sm" style="background:#f0f0f0;" onclick="loadWork()">刷新</button>
+        </div>
+    </div>
+    <div class="text-muted" style="margin-bottom:10px;">
+        工时按<b>上工/收工区间</b>统计，区间内的操作数从<b>审计日志</b>数（不靠人填）。
+        没点「收工」的会话不计入工时，单独标出 —— 宁可显示"有一个未结束的会话"，也不虚报时长。
+    </div>
+    <div id="workMsg" style="font-size:13px;color:#666;margin-bottom:8px;"></div>
+    <table class="table">
+        <tr><th>标注员</th><th>角色</th><th>会话</th><th>未结束</th><th>工时</th><th>操作数</th>
+            <th>条/小时</th><th>标注/复核/画布</th></tr>
+        <tbody id="workBody"><tr><td colspan="8" style="text-align:center;color:#999;padding:16px;">加载中…</td></tr></tbody>
+    </table>
+</div>
+
+<div class="card">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;">Episode 标注</h3>
+        <div class="text-muted"><span id="epCount"></span></div>
+    </div>
+    <table class="table">
+        <tr><th>Episode</th><th>原始指令</th><th>标注指令（可改）</th><th>成功</th><th>备注</th><th>视频/画布</th><th>操作</th></tr>
+        <tbody id="epBody"><tr><td colspan="7" style="text-align:center;color:#999;padding:20px;">选一个数据集后点「加载」</td></tr></tbody>
+    </table>
+</div>
+
+<div class="card" id="canvasCard" style="display:none;">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;" id="cvTitle">画布标注</h3>
+        <div>
+            <span class="text-muted" id="cvMeta"></span>
+            <button class="btn btn-sm" style="background:#f0f0f0;" onclick="document.getElementById('canvasCard').style.display='none'">关闭</button>
+        </div>
+    </div>
+    <div style="display:flex;gap:20px;flex-wrap:wrap;">
+        <div>
+            <div style="font-size:13px;margin-bottom:6px;">
+                <label><input type="radio" name="cvtool" value="bbox" checked onchange="setTool()"> 目标框（在图上拖拽）</label>
+                <label style="margin-left:12px;"><input type="radio" name="cvtool" value="keypoint" onchange="setTool()"> 关键点（点一下）</label>
+                <label style="margin-left:12px;"><input type="radio" name="cvtool" value="phase" onchange="setTool()"> 阶段（填帧区间）</label>
+            </div>
+            <canvas id="cv" width="480" height="270"
+                    style="border:1px solid #d9d9d9;border-radius:6px;background:#111;cursor:crosshair;touch-action:none;"></canvas>
+            <div style="display:flex;gap:10px;align-items:flex-end;margin-top:8px;flex-wrap:wrap;">
+                <div>
+                    <label style="font-size:12px;display:block;">帧</label>
+                    <input id="cvFrame" type="number" value="0" min="0"
+                           style="width:80px;padding:5px 8px;border:1px solid #d9d9d9;border-radius:4px;" onchange="loadFrame()">
+                </div>
+                <div id="phaseBox" style="display:none;">
+                    <label style="font-size:12px;display:block;">起帧 / 止帧</label>
+                    <input id="phStart" type="number" value="0" style="width:70px;padding:5px 8px;border:1px solid #d9d9d9;border-radius:4px;">
+                    <input id="phEnd" type="number" value="10" style="width:70px;padding:5px 8px;border:1px solid #d9d9d9;border-radius:4px;">
+                </div>
+                <div>
+                    <label style="font-size:12px;display:block;">标签（必填）</label>
+                    <input id="cvLabel" placeholder="如：红色连接器 / 接近 / 夹取"
+                           style="width:190px;padding:5px 8px;border:1px solid #d9d9d9;border-radius:4px;">
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="saveSpatial()">保存标注</button>
+            </div>
+            <div id="cvMsg" style="font-size:13px;color:#666;margin-top:8px;">
+                坐标按归一化 0~1 存（与分辨率无关）；越界/宽高非正/阶段起止反了都会被服务端拒掉。
+            </div>
+        </div>
+        <div style="flex:1;min-width:300px;">
+            <div style="font-weight:600;font-size:14px;margin-bottom:6px;">该 episode 的画布标注</div>
+            <table class="table" style="background:#fff;">
+                <tr><th>类型</th><th>标签</th><th>帧 / 区间</th><th>坐标</th><th></th></tr>
+                <tbody id="cvList"><tr><td colspan="5" style="text-align:center;color:#999;padding:16px;">还没有</td></tr></tbody>
+            </table>
+            <div class="text-muted" id="cvSummary" style="margin-top:8px;"></div>
+        </div>
+    </div>
+</div>
+
+<div class="card" id="videoCard" style="display:none;">
+    <div class="flex mb-12">
+        <h3 style="margin-bottom:0;" id="videoTitle">预览</h3>
+        <span class="text-muted" id="previewMeta"></span>
+        <button class="btn btn-sm" style="background:#f0f0f0;" onclick="document.getElementById('videoCard').style.display='none'">关闭</button>
+    </div>
+    <video id="vid" controls style="width:360px;border-radius:6px;background:#000;"></video>
+    <div id="frameBox" style="display:none;">
+        <img id="frameImg" style="width:360px;border-radius:6px;background:#000;border:1px solid #e9edf4;">
+        <div style="display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+            <label style="font-size:12px;">相机 <select id="camSel" style="padding:4px 8px;border:1px solid #d9d9d9;border-radius:4px;" onchange="loadInlineFrame()"></select></label>
+            <label style="font-size:12px;">帧 <input id="frameSlider" type="range" min="0" max="0" value="0" style="width:200px;vertical-align:middle;" oninput="loadInlineFrame()"></label>
+            <span class="text-muted" id="frameLabel" style="font-size:12px;"></span>
+        </div>
+    </div>
+</div>
+
+<script>
+let DS = [];
+
+async function loadDatasets() {
+    DS = await API.get('/api/datasets');
+    document.getElementById('dsSel').innerHTML = DS.map((d) =>
+        `<option value="${d.id}">${d.name}（${d.total_episodes} 条）</option>`).join('');
+    if (DS.length) loadEpisodes();
+}
+
+async function loadEpisodes() {
+    const datasetId = document.getElementById('dsSel').value;
+    if (!datasetId) return;
+    const data = await API.get(`/api/datasets/${datasetId}/episodes?limit=200`);
+    document.getElementById('epCount').textContent = `共 ${data.total} 条`;
+    const body = document.getElementById('epBody');
+    body.innerHTML = data.episodes.map((e) => {
+        const value = (e.annotated_task !== null && e.annotated_task !== undefined)
+            ? e.annotated_task : (e.task_text || '');
+        const success = e.annotated_success === 1;
+        return `<tr>
+            <td><strong>${e.episode_index}</strong><div class="text-muted" style="font-size:11px;">${e.data_rows} 帧 / ${e.duration_s}s</div></td>
+            <td style="font-size:12px;color:#8896ab;max-width:200px;">${e.task_text || '-'}</td>
+            <td><input id="task_${e.episode_index}" value="${value.replace(/"/g, '&quot;')}" style="width:340px;padding:6px 8px;border:1px solid #d9d9d9;border-radius:4px;font-size:13px;"></td>
+            <td><input type="checkbox" id="succ_${e.episode_index}" ${success ? 'checked' : ''}></td>
+            <td><input id="note_${e.episode_index}" style="width:120px;padding:6px 8px;border:1px solid #d9d9d9;border-radius:4px;font-size:13px;"></td>
+            <td style="white-space:nowrap;"><button class="btn btn-sm" style="background:#f0f0f0;" onclick="playVideo(${datasetId}, ${e.episode_index})">预览</button>
+                <button class="btn btn-sm" style="background:#f0f0f0;" onclick="openCanvas(${datasetId}, ${e.episode_index})">画布</button></td>
+            <td><button class="btn btn-primary btn-sm" onclick="saveAnnotation(this, ${datasetId}, ${e.episode_index})">保存</button></td>
+        </tr>`;
+    }).join('');
+}
+
+async function saveAnnotation(btn, datasetId, episodeIndex) {
+    const payload = {
+        task_text: document.getElementById(`task_${episodeIndex}`).value,
+        success: document.getElementById(`succ_${episodeIndex}`).checked,
+        note: document.getElementById(`note_${episodeIndex}`).value,
+        annotator: 'admin',
+    };
+    try {
+        await API.put(`/api/annotations/${datasetId}/${episodeIndex}`, payload);
+        btn.textContent = '已保存 ✓';
+        btn.classList.remove('btn-primary');
+        setTimeout(() => { btn.textContent = '保存'; btn.classList.add('btn-primary'); }, 1500);
+    } catch (err) {
+        alert('保存失败：' + err.message);
+    }
+}
+
+async function playVideo(datasetId, episodeIndex) {
+    document.getElementById('videoCard').style.display = 'block';
+    document.getElementById('videoTitle').textContent = `预览 · 数据集 #${datasetId} episode ${episodeIndex}`;
+    document.getElementById('previewMeta').textContent = '';
+    const vid = document.getElementById('vid');
+    const box = document.getElementById('frameBox');
+    let info = null;
+    try {
+        info = await API.get(`/api/episodes/${datasetId}/${episodeIndex}/frames`);
+    } catch (err) {
+        setMsg('previewMeta', '读取 episode 视觉信息失败：' + err.message);
+        return;
+    }
+    if (info.has_video) {                       // 有 mp4：原来的播放器
+        box.style.display = 'none';
+        vid.style.display = '';
+        vid.src = `/api/episodes/${datasetId}/${episodeIndex}/video`;
+        vid.load();
+        setMsg('previewMeta', `视频 · ${info.rows} 帧 · ${info.fps || '-'}fps`, 'ok');
+        return;
+    }
+    if (info.has_inline_images) {               // 内嵌图像：逐帧查看器
+        vid.style.display = 'none';
+        vid.removeAttribute('src');
+        box.style.display = 'block';
+        window.__FR = { ds: datasetId, ep: episodeIndex, rows: info.rows };
+        document.getElementById('camSel').innerHTML =
+            info.image_keys.map((k) => `<option value="${k}">${k}</option>`).join('');
+        const slider = document.getElementById('frameSlider');
+        slider.max = Math.max(0, (info.rows || 1) - 1);
+        slider.value = 0;
+        setMsg('previewMeta', `内嵌图像（parquet 里，无 mp4） · ${info.rows} 帧 · ${info.fps || '-'}fps`, 'ok');
+        loadInlineFrame();
+        return;
+    }
+    box.style.display = 'none';
+    vid.style.display = 'none';
+    setMsg('previewMeta', '这条 episode 没有视觉数据（纯轨迹数据集）', 'error');
+}
+
+function loadInlineFrame() {
+    const fr = window.__FR;
+    if (!fr) return;
+    const index = document.getElementById('frameSlider').value;
+    const key = document.getElementById('camSel').value;
+    const img = document.getElementById('frameImg');
+    img.src = `/api/episodes/${fr.ds}/${fr.ep}/frame?index=${index}&key=${encodeURIComponent(key)}&max_size=640`;
+    document.getElementById('frameLabel').textContent = `第 ${index} / ${fr.rows - 1} 帧`;
+}
+
+loadDatasets();
+async function loadWork() {
+    const st = await API.get('/api/annotators/stats?days=7');
+    const open = await API.get('/api/annotators/work/current');
+    const who = document.getElementById('whoInput').value.trim() || 'admin';
+    const mine = open.find((s) => s.annotator === who);
+    setMsg('workMsg', open.length
+        ? `未结束的会话：${open.map((s) => s.annotator + '（' + s.started_at + '）').join('、')}`
+          + (mine ? `　→ 你已在工作中` : '')
+        : '当前没有人处于工作中', open.length ? '' : 'ok');
+    const body = document.getElementById('workBody');
+    body.innerHTML = st.people.length ? st.people.map((p) => `<tr>
+        <td><strong>${p.annotator}</strong>${p.registered ? '' : ' <span class="tag">未登记</span>'}
+            ${p.active ? '' : ' <span class="tag" style="background:#fff1f0;color:#cf1322;">已停用</span>'}</td>
+        <td>${p.role || '-'}</td>
+        <td>${p.sessions}</td>
+        <td>${p.open_sessions ? `<span style="color:#faad14;">${p.open_sessions}</span>` : 0}</td>
+        <td>${p.minutes} 分钟</td>
+        <td>${p.operations}</td>
+        <td>${p.per_hour === null ? '<span class="text-muted">样本太短</span>' : p.per_hour}</td>
+        <td style="font-size:12px;">${p.annotations_total} / ${p.reviews_total} / ${p.spatial_total}</td>
+      </tr>`).join('')
+      : '<tr><td colspan="8" style="text-align:center;color:#999;padding:16px;">还没有工时记录</td></tr>';
+}
+
+async function workStart() {
+    const annotator = document.getElementById('whoInput').value.trim() || 'admin';
+    try {
+        const s = await API.post('/api/annotators/work/start', { annotator });
+        setMsg('workMsg', `${annotator} 上工（会话 #${s.id}，${s.started_at}）`, 'ok');
+        await loadWork();
+    } catch (err) { setMsg('workMsg', '上工失败：' + err.message, 'error'); }
+}
+
+async function workStop() {
+    const annotator = document.getElementById('whoInput').value.trim() || 'admin';
+    try {
+        const r = await API.post('/api/annotators/work/stop', { annotator });
+        setMsg('workMsg', `${annotator} 收工：${r.minutes} 分钟，区间内 `
+            + `${Object.values(r.counts).reduce((a, b) => a + b, 0)} 次标注操作`, 'ok');
+        await loadWork();
+    } catch (err) { setMsg('workMsg', '收工失败：' + err.message, 'error'); }
+}
+
+loadWork();
+</script>
+{% endblock %}
